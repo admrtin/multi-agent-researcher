@@ -1,28 +1,11 @@
-# ── Google ADK + Gemini ────────────────────────────────────────────────────
+# Google ADK + Gemini
 google-adk>=0.1.0
 google-generativeai>=0.5.0
 
-# ── Paper discovery ────────────────────────────────────────────────────────
-semanticscholar>=0.8.0          # Semantic Scholar API client
-requests>=2.31.0
-beautifulsoup4>=4.12.0          # HTML scraping fallback
-lxml>=5.0.0                     # Fast BS4 parser
-
-# ── PDF parsing ────────────────────────────────────────────────────────────
-pymupdf>=1.24.0                 # Primary PDF extractor  (import fitz)
-pdfplumber>=0.11.0              # Fallback / table extraction
-
-# ── Data validation & modelling ───────────────────────────────────────────
-pydantic>=2.7.0
-
-# ── CLI ────────────────────────────────────────────────────────────────────
-rich>=13.7.0                    # Pretty terminal output & progress bars
-typer>=0.12.0                   # CLI framework
-
-# ── Config & secrets ──────────────────────────────────────────────────────
+# Config & secrets
 python-dotenv>=1.0.0
 
-# ── Testing ────────────────────────────────────────────────────────────────
+# Testing
 pytest>=8.2.0
 pytest-asyncio>=0.23.0
 pytest-mock>=3.14.0

@@ -6,4 +6,10 @@ outputs/*
 .env
 
 # .venv (DEPENDENCIES)
-.venv/*
+.venv
+
+# .adk temp files
+.adk
+
+# __pycache__
+__pycache__
