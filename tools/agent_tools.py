@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -8,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
 
 
 def save_markdown_file(filename: str, content: str) -> str:
@@ -96,6 +102,18 @@ def cleanup_old_runs(base_dir: str = "outputs", keep_last: int = 3) -> str:
     )
 
 
+def _semantic_scholar_headers() -> dict[str, str]:
+    """
+    Build request headers for Semantic Scholar. If an API key is available
+    in the environment, include it. Otherwise return empty headers so the
+    app can still work without authentication.
+    """
+    headers: dict[str, str] = {}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    return headers
+
+
 def scrape_research_articles(
     topic: str,
     max_results: int = 10,
@@ -126,7 +144,12 @@ def scrape_research_articles(
     }
 
     try:
-        response = requests.get(url, params=params, timeout=30)
+        response = requests.get(
+            url,
+            params=params,
+            headers=_semantic_scholar_headers(),
+            timeout=30,
+        )
         response.raise_for_status()
         payload = response.json()
     except requests.RequestException as exc:
@@ -219,7 +242,12 @@ def research_single_paper(
     }
 
     try:
-        response = requests.get(url, params=params, timeout=30)
+        response = requests.get(
+            url,
+            params=params,
+            headers=_semantic_scholar_headers(),
+            timeout=30,
+        )
         response.raise_for_status()
         payload = response.json()
     except requests.RequestException as exc:
