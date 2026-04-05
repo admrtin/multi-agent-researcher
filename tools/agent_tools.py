@@ -61,7 +61,12 @@ def create_run_output_dir(base_dir: str = "outputs", keep_last: int = 3) -> str:
     if len(run_dirs) > keep_last:
         to_delete = run_dirs[:-keep_last]
         for old_dir in to_delete:
-            shutil.rmtree(old_dir)
+            try:
+                shutil.rmtree(old_dir)
+            except PermissionError:
+                print(f"Warning: Could not delete locked run folder: {old_dir}")
+            except OSError as exc:
+                print(f"Warning: Could not delete {old_dir}: {exc}")
 
     return run_dir.as_posix()
 
@@ -303,6 +308,40 @@ def load_json_file(filename: str) -> str:
     """
     path = Path(filename)
     return path.read_text(encoding="utf-8")
+
+
+def get_latest_planner_manifest(base_dir: str = "outputs/planner_outputs") -> str:
+    """
+    Returns the path to the most recent planner_manifest.json file
+    inside the planner outputs directory.
+
+    Args:
+        base_dir: Base directory containing planner run folders.
+
+    Returns:
+        The path to the latest planner_manifest.json file as a string.
+
+    Raises:
+        FileNotFoundError: If no planner manifest files are found.
+    """
+    base_path = Path(base_dir)
+    if not base_path.exists():
+        raise FileNotFoundError(f"Planner output directory does not exist: {base_dir}")
+
+    run_dirs = sorted(
+        [path for path in base_path.iterdir() if path.is_dir() and path.name.startswith("run_")],
+        key=lambda path: path.name,
+    )
+
+    if not run_dirs:
+        raise FileNotFoundError(f"No planner run folders found in: {base_dir}")
+
+    for run_dir in reversed(run_dirs):
+        manifest_path = run_dir / "planner_manifest.json"
+        if manifest_path.exists():
+            return manifest_path.as_posix()
+
+    raise FileNotFoundError(f"No planner_manifest.json found in any run folder under: {base_dir}")
 
 
 @dataclass(frozen=True)
