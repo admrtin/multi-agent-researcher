@@ -66,42 +66,6 @@ def create_run_output_dir(base_dir: str = "outputs", keep_last: int = 3) -> str:
     return run_dir.as_posix()
 
 
-def cleanup_old_runs(base_dir: str = "outputs", keep_last: int = 3) -> str:
-    """
-    Deletes older run folders in the outputs directory, keeping only the newest N runs.
-
-    Args:
-        base_dir: The directory containing timestamped run folders.
-        keep_last: Number of most recent runs to keep.
-
-    Returns:
-        A status message describing what was deleted or if no cleanup was needed.
-    """
-    base_path = Path(base_dir)
-    base_path.mkdir(parents=True, exist_ok=True)
-
-    run_dirs = sorted(
-        [path for path in base_path.iterdir() if path.is_dir() and path.name.startswith("run_")],
-        key=lambda path: path.name,
-    )
-
-    if len(run_dirs) <= keep_last:
-        return f"No cleanup needed. Found {len(run_dirs)} run folder(s) in {base_path.as_posix()}."
-
-    to_delete = run_dirs[:-keep_last]
-    deleted = []
-
-    for old_dir in to_delete:
-        shutil.rmtree(old_dir, ignore_errors=True)
-        deleted.append(old_dir.as_posix())
-
-    return (
-        f"Deleted {len(deleted)} old run folder(s). "
-        f"Kept the most recent {keep_last} run(s). "
-        f"Deleted: {deleted}"
-    )
-
-
 def _semantic_scholar_headers() -> dict[str, str]:
     """
     Build request headers for Semantic Scholar. If an API key is available
@@ -314,6 +278,31 @@ def research_single_paper(
         },
         indent=2,
     )
+
+
+def save_json_file(filename: str, data: str) -> str:
+    """
+    Saves JSON content to disk. Expects `data` to be a JSON string.
+    """
+    path = Path(filename)
+
+    if path.suffix.lower() != ".json":
+        path = path.with_suffix(".json")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    parsed = json.loads(data)
+    path.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
+
+    return f"Successfully saved {path.as_posix()} to disk."
+
+
+def load_json_file(filename: str) -> str:
+    """
+    Loads a JSON file from disk and returns it as a JSON string.
+    """
+    path = Path(filename)
+    return path.read_text(encoding="utf-8")
 
 
 @dataclass(frozen=True)

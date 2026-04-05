@@ -3,8 +3,8 @@ from google.adk.agents import Agent
 from tools.agent_tools import (
     save_markdown_file,
     create_run_output_dir,
-    cleanup_old_runs,
     research_single_paper,
+    save_json_file,
     gemini_models,
 )
 
@@ -17,8 +17,8 @@ researcher_agent = Agent(
     instruction=prompt,
     tools=[
         create_run_output_dir,
-        cleanup_old_runs,
         research_single_paper,
         save_markdown_file,
+        save_json_file,
     ],
 )
