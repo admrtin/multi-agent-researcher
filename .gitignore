@@ -13,3 +13,6 @@ outputs/*
 
 # __pycache__
 __pycache__
+
+# Papers
+papers/*
