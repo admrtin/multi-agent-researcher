@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 from dataclasses import dataclass
@@ -10,25 +11,76 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from google.adk.tools.tool_context import ToolContext
 
 load_dotenv()
 
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
 
 
+
+def exit_loop(tool_context: ToolContext) -> dict:
+    """
+    Signals the enclosing LoopAgent to stop iterating immediately.
+
+    Call this tool once validation has passed (or when the task is
+    confirmed complete) to prevent the LoopAgent from running further
+    researcher → validator cycles unnecessarily.
+    """
+    tool_context.actions.escalate = True
+    return {"status": "loop_exited", "message": "Loop terminated successfully."}
+
+
 def save_markdown_file(filename: str, content: str) -> str:
     """
     Saves markdown content to disk. Creates parent directories if needed.
     """
-    path = Path(filename)
+    try:
+        path = Path(filename)
+        if path.suffix.lower() != ".md":
+            path = path.with_suffix(".md")
+        
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        msg = f"[TOOL] save_markdown_file: Saved {len(content)} bytes to {path.as_posix()}"
+        print(msg, flush=True)
+        return f"Successfully saved {path.as_posix()} to disk."
+    except Exception as e:
+        msg = f"[TOOL ERROR] save_markdown_file: {e}"
+        print(msg, file=sys.stderr, flush=True)
+        return f"Error saving file: {e}"
 
-    if path.suffix.lower() != ".md":
-        path = path.with_suffix(".md")
+def read_researcher_output(researcher_output_path: str) -> str:
+    """Reads a researcher output file and returns its content for validation."""
+    try:
+        path = Path(researcher_output_path)
+        exists = path.exists()
+        msg = f"[TOOL] read_researcher_output: Reading {path.as_posix()} (exists={exists})"
+        print(msg, flush=True)
+        if not exists:
+            return json.dumps({"status": "error", "message": f"File not found: {researcher_output_path}"})
+        content = path.read_text(encoding="utf-8")
+        return json.dumps({"status": "success", "content": content})
+    except Exception as e:
+        msg = f"[TOOL ERROR] read_researcher_output: {e}"
+        print(msg, file=sys.stderr, flush=True)
+        return json.dumps({"status": "error", "message": str(e)})
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-    return f"Successfully saved {path.as_posix()} to disk."
+def load_json_file(filename: str) -> str:
+    """
+    Loads a JSON file from disk and returns it as a JSON string.
+    """
+    try:
+        path = Path(filename)
+        msg = f"[TOOL] load_json_file: Reading {path.as_posix()}"
+        print(msg, flush=True)
+        if not path.exists():
+             return json.dumps({"status": "error", "message": f"File not found: {filename}"})
+        return path.read_text(encoding="utf-8")
+    except Exception as e:
+        msg = f"[TOOL ERROR] load_json_file: {e}"
+        print(msg, file=sys.stderr, flush=True)
+        return json.dumps({"status": "error", "message": str(e)})
 
 
 def create_run_output_dir(base_dir: str = "outputs", keep_last: int = 3) -> str:
@@ -91,8 +143,9 @@ def scrape_research_articles(
     """
     Search for research papers related to a topic and return abstracts plus references.
     """
+    print(f"[TOOL] scrape_research_articles: Searching for '{topic}'", flush=True)
     url = "https://api.semanticscholar.org/graph/v1/paper/search"
-
+    
     params = {
         "query": topic,
         "limit": max_results,
@@ -159,9 +212,9 @@ def scrape_research_articles(
                 "venue": paper.get("venue"),
                 "url": paper.get("url"),
                 "authors": authors,
-                "abstract": paper.get("abstract") or "No abstract available.",
+                "abstract": (paper.get("abstract") or "No abstract available.")[:500] + "...",
                 "reference_count": paper.get("referenceCount", 0),
-                "references": references,
+                "references": references[:3],
             }
         )
 
@@ -285,9 +338,13 @@ def research_single_paper(
     )
 
 
-def save_json_file(filename: str, data: str) -> str:
+def save_json_file(filename: str, data) -> str:
     """
-    Saves JSON content to disk. Expects `data` to be a JSON string.
+    Saves JSON content to disk.
+
+    ``data`` can be either:
+    - A JSON-encoded string (e.g. '{"key": "value"}')
+    - A pre-parsed Python dict/list (passed directly by an LLM agent)
     """
     path = Path(filename)
 
@@ -296,21 +353,21 @@ def save_json_file(filename: str, data: str) -> str:
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    parsed = json.loads(data)
+    if isinstance(data, (dict, list)):
+        parsed = data
+    else:
+        # data is expected to be a JSON string
+        parsed = json.loads(data)
+
     path.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
 
     return f"Successfully saved {path.as_posix()} to disk."
 
 
-def load_json_file(filename: str) -> str:
-    """
-    Loads a JSON file from disk and returns it as a JSON string.
-    """
-    path = Path(filename)
-    return path.read_text(encoding="utf-8")
 
 
-def get_latest_planner_manifest(base_dir: str = "outputs/planner_outputs") -> str:
+
+def get_latest_planner_manifest(base_dir: str = "outputs") -> str:
     """
     Returns the path to the most recent planner_manifest.json file
     inside the planner outputs directory.
@@ -349,12 +406,7 @@ def list_researcher_outputs(base_dir: str = "outputs") -> str:
     files = list(path.rglob("*.json")) + list(path.rglob("*.md"))
     return json.dumps([f.as_posix() for f in files], indent=2)
 
-def read_researcher_output(researcher_output_path: str) -> str:
-    """Reads a researcher output file and returns its content for validation."""
-    path = Path(researcher_output_path)
-    if not path.exists():
-        return json.dumps({"status": "error", "message": f"File not found: {researcher_output_path}"})
-    return json.dumps({"status": "success", "content": path.read_text(encoding="utf-8")})
+
 
 def get_latest_run_dir(base_dir: str = "outputs") -> str:
     """Returns the most recent run directory path."""
