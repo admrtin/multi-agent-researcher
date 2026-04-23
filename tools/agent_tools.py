@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
 import os
 import shutil
 import sys
@@ -10,10 +11,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
+from typing import Any, TYPE_CHECKING
 
+from google.adk.tools import BaseTool
+from google.genai import types
 import requests
 from dotenv import load_dotenv
 from google.adk.tools.tool_context import ToolContext
+
+if TYPE_CHECKING:
+    from google.adk.models.llm_request import LlmRequest
+    from google.adk.tools import ToolContext
 
 load_dotenv()
 
@@ -316,6 +324,131 @@ def save_json_file(filename: str, data) -> str:
         return f"Error saving JSON: {e}. Please ensure you are outputting a valid JSON string without single quotes for property names."
 
 
+
+
+class LoadPdfFileTool(BaseTool):
+    """Load a local PDF and attach it to the next Gemini request as PDF bytes."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="load_pdf_file",
+            description=(
+                "Loads a local PDF file by path and attaches it directly to the "
+                "model request as application/pdf inline data. Use this for PDFs "
+                "where layout, tables, figures, or page structure matter."
+            ),
+        )
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "filename": types.Schema(
+                        type=types.Type.STRING,
+                        description="Local filesystem path to the PDF file.",
+                    ),
+                },
+                required=["filename"],
+            ),
+        )
+
+    async def run_async(
+        self,
+        *,
+        args: dict[str, Any],
+        tool_context: "ToolContext",
+    ) -> dict[str, Any]:
+        filename = str(args.get("filename", "")).strip()
+        if not filename:
+            return {"status": "error", "message": "Missing filename."}
+
+        path = Path(filename).expanduser()
+        if not path.exists():
+            return {"status": "error", "message": f"File not found: {filename}"}
+        if not path.is_file():
+            return {"status": "error", "message": f"Not a file: {filename}"}
+
+        mime_type = mimetypes.guess_type(path.name)[0] or "application/pdf"
+        if path.suffix.lower() != ".pdf" and mime_type != "application/pdf":
+            return {
+                "status": "error",
+                "message": f"Expected a PDF file, got: {path.name}",
+            }
+
+        return {
+            "status": "success",
+            "filename": path.as_posix(),
+            "mime_type": "application/pdf",
+            "size_bytes": path.stat().st_size,
+            "message": (
+                "PDF will be attached directly to the next model request as "
+                "application/pdf inline data."
+            ),
+        }
+
+    async def process_llm_request(
+        self,
+        *,
+        tool_context: "ToolContext",
+        llm_request: "LlmRequest",
+    ) -> None:
+        await super().process_llm_request(
+            tool_context=tool_context,
+            llm_request=llm_request,
+        )
+
+        filenames = self._filenames_from_last_tool_response(llm_request)
+        for filename in filenames:
+            path = Path(filename)
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+
+            llm_request.contents.append(
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(
+                            text=(
+                                f"PDF file {path.as_posix()} is attached as "
+                                "application/pdf inline data. Analyze the "
+                                "document directly, preserving table and "
+                                "layout information when relevant."
+                            )
+                        ),
+                        types.Part.from_bytes(
+                            data=data,
+                            mime_type="application/pdf",
+                        ),
+                    ],
+                )
+            )
+
+    def _filenames_from_last_tool_response(
+        self,
+        llm_request: "LlmRequest",
+    ) -> list[str]:
+        if not llm_request.contents or not llm_request.contents[-1].parts:
+            return []
+
+        filenames: list[str] = []
+        for part in llm_request.contents[-1].parts:
+            function_response = part.function_response
+            if not function_response or function_response.name != self.name:
+                continue
+
+            response = function_response.response or {}
+            if response.get("status") == "success" and response.get("filename"):
+                filenames.append(str(response["filename"]))
+
+        return filenames
+
+
+load_pdf_file = LoadPdfFileTool()
 
 def get_latest_planner_manifest(base_dir: str = "outputs") -> str:
     """

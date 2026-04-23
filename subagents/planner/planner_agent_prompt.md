@@ -44,12 +44,31 @@ Your objective is to receive a refined research topic from the Root agent and fi
    - It is acceptable to proceed with fewer than {SEED_PAPER_COUNT} papers after user removals. Do NOT search for replacement papers unless the user explicitly asks.
 10. Repeat steps 7–9 across multiple conversation turns until the user approves.
 
-### Phase 3 — Create researcher for eaach paper
+### Phase 3 — Create researcher for each paper
 
 11. Call `save_markdown_file` for each approved paper, creating a `tasking.md` file:
    - `<run_folder>/researchers/researcher_1/tasking.md`
    - `<run_folder>/researchers/researcher_2/tasking.md`
    - ... one per approved paper
+
+   Each `tasking.md` must contain the following content exactly:
+   ```
+   # Tasking: <paper title>
+
+   ## Research Topic
+   <the overall planner topic>
+
+   ## Paper Metadata
+   - **Title**: <paper title>
+   - **Year**: <year>
+   - **PDF Link**: <ArXiv PDF URL>
+
+   ## Abstract
+   <full abstract text from search_arxiv>
+
+   ## Instructions
+   Download the paper using the PDF link above, read it, and produce a detailed summary.
+   ```
 12. Output `"Saving manifest..."` and call `save_json_file` for `<run_folder>/planner_manifest.json`.
 13. Output a summary and ask: *"Do you want to proceed to the research phase?"*
 

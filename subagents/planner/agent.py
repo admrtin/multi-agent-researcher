@@ -7,6 +7,7 @@ from tools.agent_tools import (
     save_markdown_file,
     download_arxiv_pdf,
     gemini_models,
+    load_pdf_file,
 )
 
 import os
