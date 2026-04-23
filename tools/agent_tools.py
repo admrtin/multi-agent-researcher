@@ -4,18 +4,18 @@ import json
 import logging
 import os
 import shutil
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import xml.etree.ElementTree as ET
 
 import requests
 from dotenv import load_dotenv
 from google.adk.tools.tool_context import ToolContext
 
 load_dotenv()
-
-SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
 
 
 
@@ -123,219 +123,146 @@ def create_run_output_dir(base_dir: str = "outputs", keep_last: int = 3) -> str:
     return run_dir.as_posix()
 
 
-def _semantic_scholar_headers() -> dict[str, str]:
+def search_arxiv(query: str, max_results: int = 10) -> str:
     """
-    Build request headers for Semantic Scholar. If an API key is available
-    in the environment, include it. Otherwise return empty headers so the
-    app can still work without authentication.
+    Search the ArXiv database using a query and return a list of papers.
+    Returns a JSON string containing a list of dictionaries with title, year, and pdf_link.
     """
-    headers: dict[str, str] = {}
-    if SEMANTIC_SCHOLAR_API_KEY:
-        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
-    return headers
 
 
-def scrape_research_articles(
-    topic: str,
-    max_results: int = 10,
-    max_references_per_paper: int = 5,
-) -> str:
-    """
-    Search for research papers related to a topic and return abstracts plus references.
-    """
-    print(f"[TOOL] scrape_research_articles: Searching for '{topic}'", flush=True)
-    url = "https://api.semanticscholar.org/graph/v1/paper/search"
+    url = "http://export.arxiv.org/api/query"
+    params = {
+        "search_query": f"all:{query}",
+        "start": 0,
+        "max_results": max_results
+    }
+    print(f"Making request to ArXiv with query: {query}")
     
-    params = {
-        "query": topic,
-        "limit": max_results,
-        "fields": ",".join(
-            [
-                "title",
-                "year",
-                "abstract",
-                "url",
-                "venue",
-                "authors",
-                "referenceCount",
-                "references.title",
-                "references.year",
-                "references.url",
-            ]
-        ),
-    }
+    import time
+    max_retries = 3
+    xml_data = None
+    for attempt in range(max_retries):
+        try:
+            # Respect ArXiv's rate limit of 1 request / 3 seconds.
+            time.sleep(3.1)
+            response = requests.get(url, params=params, timeout=30)
+            if response.status_code == 429:
+                if attempt == max_retries - 1:
+                    return json.dumps([{"error": "Failed to retrieve papers: HTTP 429 Too Many Requests"}], indent=2)
+                print(f"Rate limited by ArXiv. Retrying in 10 seconds...")
+                time.sleep(10)
+                continue
+            response.raise_for_status()
+            xml_data = response.text
+            break
+        except Exception as e:
+            if attempt == max_retries - 1:
+                return json.dumps([{"error": f"Failed to retrieve papers: {e}"}], indent=2)
+            print(f"Error accessing ArXiv: {e}. Retrying in 5 seconds...")
+            time.sleep(5)
+
+    if not xml_data:
+        return json.dumps([{"error": "Failed to retrieve papers: XML data is empty"}], indent=2)
 
     try:
-        response = requests.get(
-            url,
-            params=params,
-            headers=_semantic_scholar_headers(),
-            timeout=30,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except requests.RequestException as exc:
-        return json.dumps(
-            {
-                "topic": topic,
-                "status": "error",
-                "message": f"Failed to retrieve papers: {exc}",
-                "papers": [],
-            },
-            indent=2,
-        )
-
-    papers: list[dict[str, Any]] = []
-
-    for paper in payload.get("data", []):
-        author_list = paper.get("authors") or []
-        authors = [
-            author.get("name", "Unknown Author")
-            for author in author_list[:5]
-        ]
-
-        raw_references = paper.get("references") or []
-        references = []
-        for ref in raw_references[:max_references_per_paper]:
-            references.append(
-                {
-                    "title": ref.get("title", "Unknown Title"),
-                    "year": ref.get("year"),
-                    "url": ref.get("url"),
-                }
-            )
-
-        papers.append(
-            {
-                "title": paper.get("title", "Unknown Title"),
-                "year": paper.get("year"),
-                "venue": paper.get("venue"),
-                "url": paper.get("url"),
-                "authors": authors,
-                "abstract": (paper.get("abstract") or "No abstract available.")[:500] + "...",
-                "reference_count": paper.get("referenceCount", 0),
-                "references": references[:3],
-            }
-        )
-
-    return json.dumps(
-        {
-            "topic": topic,
-            "status": "success",
-            "paper_count": len(papers),
-            "papers": papers,
-        },
-        indent=2,
-    )
+        root = ET.fromstring(xml_data)
+    except ET.ParseError as e:
+        return json.dumps([{"error": f"Failed to parse XML response: {e}"}], indent=2)
+        
+    ns = {'atom': 'http://www.w3.org/2005/Atom'}
+    
+    papers = []
+    for entry in root.findall('atom:entry', ns):
+        title_element = entry.find('atom:title', ns)
+        title = title_element.text.replace('\n', ' ').strip() if title_element is not None and title_element.text else "Unknown Title"
+        
+        published_element = entry.find('atom:published', ns)
+        year = published_element.text[:4] if published_element is not None and published_element.text else "Unknown Year"
+        
+        pdf_link = ""
+        for link in entry.findall('atom:link', ns):
+            if link.attrib.get('title') == 'pdf':
+                pdf_link = link.attrib.get('href', '')
+                break
+        
+        if not pdf_link:
+            for link in entry.findall('atom:link', ns):
+                if 'pdf' in link.attrib.get('href', ''):
+                    pdf_link = link.attrib.get('href', '')
+                    break
+        
+        summary_element = entry.find('atom:summary', ns)
+        abstract = summary_element.text.strip().replace('\n', ' ') if summary_element is not None and summary_element.text else "No abstract available"
+                    
+        papers.append({
+            "title": title,
+            "year": year,
+            "pdf_link": pdf_link,
+            "abstract": abstract
+        })
+    print(f"Found {len(papers)} papers on ArXiv.")
+    return json.dumps(papers, indent=2)
 
 
-def research_single_paper(
-    paper_title: str,
-    max_references: int = 5,
-    max_citations: int = 5,
-) -> str:
+
+def download_arxiv_pdf(pdf_url: str, save_dir: str, filename: str = "") -> str:
     """
-    Retrieve metadata for a single paper from Semantic Scholar, including
-    abstract, references, and citations when available.
+    Downloads a PDF from an ArXiv PDF URL and saves it to disk.
+
+    Args:
+        pdf_url: The ArXiv PDF URL (e.g. http://arxiv.org/pdf/2301.12345v1).
+        save_dir: The run output directory. PDFs are saved under save_dir/papers/.
+        filename: Optional custom filename. If empty, auto-generated from the URL.
+
+    Returns:
+        A status message indicating success or failure, with the saved file path.
     """
-    url = "https://api.semanticscholar.org/graph/v1/paper/search"
+    import re
+    import time
 
-    params = {
-        "query": paper_title,
-        "limit": 1,
-        "fields": ",".join(
-            [
-                "title",
-                "year",
-                "abstract",
-                "url",
-                "venue",
-                "authors",
-                "citationCount",
-                "referenceCount",
-                "references.title",
-                "references.year",
-                "references.url",
-                "citations.title",
-                "citations.year",
-                "citations.url",
-            ]
-        ),
-    }
+    papers_dir = Path(save_dir) / "papers"
+    papers_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        response = requests.get(
-            url,
-            params=params,
-            headers=_semantic_scholar_headers(),
-            timeout=30,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except requests.RequestException as exc:
-        return json.dumps(
-            {
-                "paper_title": paper_title,
-                "status": "error",
-                "message": f"Failed to retrieve paper: {exc}",
-            },
-            indent=2,
-        )
+    if not filename:
+        # Extract arxiv ID from URL and use as filename
+        # e.g. http://arxiv.org/pdf/2301.12345v1 -> 2301.12345v1.pdf
+        url_path = pdf_url.rstrip("/").split("/")[-1]
+        # Remove any existing .pdf extension, then add it back
+        sanitized = re.sub(r"\.pdf$", "", url_path, flags=re.IGNORECASE)
+        sanitized = re.sub(r"[^\w.\-]", "_", sanitized)
+        filename = f"{sanitized}.pdf"
 
-    data = payload.get("data", [])
-    if not data:
-        return json.dumps(
-            {
-                "paper_title": paper_title,
-                "status": "error",
-                "message": "No paper found for the given title.",
-            },
-            indent=2,
-        )
+    save_path = papers_dir / filename
 
-    paper = data[0]
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            time.sleep(3.1)  # Respect ArXiv rate limit
+            print(f"Downloading PDF from {pdf_url} (attempt {attempt + 1})...")
+            response = requests.get(pdf_url, timeout=60, stream=True)
 
-    author_list = paper.get("authors") or []
-    authors = [author.get("name", "Unknown Author") for author in author_list[:10]]
+            if response.status_code == 429:
+                if attempt == max_retries - 1:
+                    return f"Failed to download {pdf_url}: HTTP 429 Too Many Requests after {max_retries} attempts."
+                print("Rate limited. Retrying in 10 seconds...")
+                time.sleep(10)
+                continue
 
-    raw_references = paper.get("references") or []
-    references = [
-        {
-            "title": ref.get("title", "Unknown Title"),
-            "year": ref.get("year"),
-            "url": ref.get("url"),
-        }
-        for ref in raw_references[:max_references]
-    ]
+            response.raise_for_status()
 
-    raw_citations = paper.get("citations") or []
-    citations = [
-        {
-            "title": cite.get("title", "Unknown Title"),
-            "year": cite.get("year"),
-            "url": cite.get("url"),
-        }
-        for cite in raw_citations[:max_citations]
-    ]
+            with open(save_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
-    return json.dumps(
-        {
-            "status": "success",
-            "paper": {
-                "title": paper.get("title", "Unknown Title"),
-                "year": paper.get("year"),
-                "venue": paper.get("venue"),
-                "url": paper.get("url"),
-                "authors": authors,
-                "abstract": paper.get("abstract") or "No abstract available.",
-                "citation_count": paper.get("citationCount", 0),
-                "reference_count": paper.get("referenceCount", 0),
-                "references": references,
-                "citations": citations,
-            },
-        },
-        indent=2,
-    )
+            return f"Successfully downloaded: {save_path.as_posix()}"
+
+        except Exception as e:
+            if attempt == max_retries - 1:
+                return f"Failed to download {pdf_url} after {max_retries} attempts: {e}"
+            print(f"Download error: {e}. Retrying in 5 seconds...")
+            time.sleep(5)
+
+    return f"Failed to download {pdf_url}: exhausted all retries."
 
 
 def save_json_file(filename: str, data) -> str:
@@ -353,17 +280,40 @@ def save_json_file(filename: str, data) -> str:
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    if isinstance(data, (dict, list)):
-        parsed = data
-    else:
-        # data is expected to be a JSON string
-        parsed = json.loads(data)
+    try:
+        # If data is already a dict or list, write it directly
+        if isinstance(data, (dict, list)):
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            msg = f"[TOOL] save_json_file: Saved to {path.as_posix()}"
+            print(msg, flush=True)
+            return f"Successfully saved {path.as_posix()} to disk."
 
-    path.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
+        # Otherwise treat as a string that may need cleaning
+        clean_data = data.strip()
+        # Sometimes LLMs wrap json in markdown blocks
+        if clean_data.startswith("```json"):
+            clean_data = clean_data[7:]
+        if clean_data.startswith("```"):
+            clean_data = clean_data[3:]
+        if clean_data.endswith("```"):
+            clean_data = clean_data[:-3]
+        clean_data = clean_data.strip()
 
-    return f"Successfully saved {path.as_posix()} to disk."
+        import ast
+        try:
+            parsed = json.loads(clean_data)
+        except json.JSONDecodeError:
+            # Fall back to ast.literal_eval for single-quoted dict strings
+            parsed = ast.literal_eval(clean_data)
 
-
+        path.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
+        msg = f"[TOOL] save_json_file: Saved to {path.as_posix()}"
+        print(msg, flush=True)
+        return f"Successfully saved {path.as_posix()} to disk."
+    except Exception as e:
+        msg = f"[TOOL ERROR] save_json_file: {e}"
+        print(msg, file=sys.stderr, flush=True)
+        return f"Error saving JSON: {e}. Please ensure you are outputting a valid JSON string without single quotes for property names."
 
 
 
@@ -407,7 +357,6 @@ def list_researcher_outputs(base_dir: str = "outputs") -> str:
     return json.dumps([f.as_posix() for f in files], indent=2)
 
 
-
 def get_latest_run_dir(base_dir: str = "outputs") -> str:
     """Returns the most recent run directory path."""
     base_path = Path(base_dir)
@@ -415,6 +364,8 @@ def get_latest_run_dir(base_dir: str = "outputs") -> str:
     if not run_dirs:
         raise FileNotFoundError("No run directories found.")
     return run_dirs[-1].as_posix()
+
+
 
 @dataclass(frozen=True)
 class GeminiModel:

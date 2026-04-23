@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
 from google.adk.agents import Agent, ParallelAgent, LoopAgent, SequentialAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.genai import types
+from dotenv import load_dotenv
+
 from subagents.validator.agent import prompt as validator_prompt
 from tools.agent_tools import (
     save_markdown_file,
     save_json_file,
-    research_single_paper,
+    download_arxiv_pdf,
     load_json_file,
     gemini_models,
     get_latest_planner_manifest,
@@ -19,10 +22,14 @@ from tools.agent_tools import (
     exit_loop,
 )
 
+load_dotenv()
+
 prompt = Path("./subagents/researcher/researcher_agent_prompt.md").read_text()
 agent_name = "RESEARCHER"
 
-MAX_RESEARCHER_POOL = 10
+# Pool size matches SEED_PAPER_COUNT. If the user removes papers during
+# approval, unassigned slots are skipped via before_agent_callback.
+MAX_RESEARCHER_POOL = int(os.getenv("SEED_PAPER_COUNT", "10"))
 
 
 def _make_skip_callback(researcher_id: str):
@@ -67,17 +74,15 @@ def _make_skip_callback(researcher_id: str):
     return _callback
 
 
+# ─── Build the researcher+validator pool ───────────────────────────────
 # NOTE: The manifest_path is NOT baked into agent instructions at import time.
 # The manifest is created by the Planner Agent AFTER this module is loaded.
 # Each researcher resolves the manifest path at runtime via the
 # `get_latest_planner_manifest` tool, guaranteeing it always uses the
 # freshest manifest regardless of when the module was first imported.
-#
-# The before_agent_callback is attached to the individual RESEARCHER_i agent
-# (not the LoopAgent) so that unassigned researchers skip themselves without
-# accidentally triggering the paired validator as well.
 
 sub_agents = []
+
 for i in range(1, MAX_RESEARCHER_POOL + 1):
     researcher_id = f"researcher_{i}"
 
@@ -90,7 +95,7 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
             + prompt
         ),
         tools=[
-            research_single_paper,
+            download_arxiv_pdf,
             save_markdown_file,
             load_json_file,
             get_latest_planner_manifest,
@@ -118,18 +123,24 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
     )
     sub_agents.append(pair)
 
-CHUNK_SIZE = 3
+# ─── Chunk into parallel groups ────────────────────────────────────────
+# Keep chunk size small to avoid hitting Gemini API rate limits
+# (1M input tokens/minute on the free/paid tier).
+CHUNK_SIZE = 2
 chunked_agents = []
 for i in range(0, len(sub_agents), CHUNK_SIZE):
     chunk = sub_agents[i:i + CHUNK_SIZE]
-    # Use ParallelAgent for chunks to speed up research while maintaining stability
     chunk_agent = ParallelAgent(
-        name=f"RESEARCHER_CHUNK_{i//CHUNK_SIZE + 1}",
+        name=f"RESEARCHER_CHUNK_{i // CHUNK_SIZE + 1}",
         sub_agents=chunk,
     )
     chunked_agents.append(chunk_agent)
 
+# ─── Export the top-level researcher agent ─────────────────────────────
+# SequentialAgent is a workflow-only orchestrator: no model, no instruction,
+# no tools.  It just runs the chunks in order.
 researcher_agent = SequentialAgent(
     name=agent_name,
     sub_agents=chunked_agents,
+    description="Orchestrates parallel paper research and validation.",
 )

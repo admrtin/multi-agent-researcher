@@ -59,5 +59,5 @@ Evaluate the following boolean flags and save them as `<researcher_dir>/validato
 - `researcher_summary_scientifically_grounded`: Are the claims scientifically sound based on the text?
 - `researcher_summary_grammatically_correct`: Is the grammar correct throughout?
 - `citations_exist`: Does the summary include a references or citations section?
-- `citations_valid`: Are the citations real and traceable? Any paper returned by the Semantic Scholar API is a real, indexed paper — do NOT mark citations invalid based on publication year alone. Recent years (2023, 2024, 2025) are valid. Only mark `false` if a title is clearly fabricated (i.e., not a plausible academic title).
+- `citations_valid`: Are the citations real and traceable? Any paper returned by the ArXiv API is a real, indexed paper — do NOT mark citations invalid based on publication year alone. Recent years (2023, 2024, 2025, 2026) are valid. Only mark `false` if a title is clearly fabricated (i.e., not a plausible academic title).
 - `citations_relevant_to_summary`: Are the cited works topically relevant to the paper's content?
