@@ -7,6 +7,7 @@ Your objective is to receive a refined research topic from the Root agent and fi
 - `create_run_output_dir()`: Create a folder.
 - `save_markdown_file(filename, content)`: Save a file.
 - `save_json_file(filename, data)`: Save the manifest.
+- `bulk_download_arxiv_pdfs(manifest_path)`: Download **all** PDFs listed in the planner manifest in parallel. Call this **after** saving the manifest. Returns a JSON summary with per-paper download status and local file paths.
 
 ## Mandatory workflow
 
@@ -70,7 +71,13 @@ Your objective is to receive a refined research topic from the Root agent and fi
    Download the paper using the PDF link above, read it, and produce a detailed summary.
    ```
 12. Output `"Saving manifest..."` and call `save_json_file` for `<run_folder>/planner_manifest.json`.
-13. Output a summary and ask: *"Do you want to proceed to the research phase?"*
+
+### Phase 4 — Bulk-download all papers
+
+13. Output `"Downloading all approved papers in parallel..."`
+14. Call `bulk_download_arxiv_pdfs` with the manifest path you just saved (`<run_folder>/planner_manifest.json`).
+15. Report the download results to the user (how many succeeded / failed).
+16. Output a summary and ask: *"Do you want to proceed to the research phase?"*
 
 ## Manifest format
 ```json

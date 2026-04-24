@@ -5,9 +5,8 @@ from tools.agent_tools import (
     search_arxiv,
     save_json_file,
     save_markdown_file,
-    download_arxiv_pdf,
+    bulk_download_arxiv_pdfs,
     gemini_models,
-    load_pdf_file,
 )
 
 import os
@@ -29,6 +28,6 @@ planner_agent = Agent(
         search_arxiv,
         save_json_file,
         save_markdown_file,
-        download_arxiv_pdf,
+        bulk_download_arxiv_pdfs,
     ],
 )

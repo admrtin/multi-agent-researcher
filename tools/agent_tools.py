@@ -273,6 +273,114 @@ def download_arxiv_pdf(pdf_url: str, save_dir: str, filename: str = "") -> str:
     return f"Failed to download {pdf_url}: exhausted all retries."
 
 
+def bulk_download_arxiv_pdfs(manifest_path: str) -> str:
+    """
+    Downloads all PDFs listed in a planner manifest in parallel.
+
+    Reads the manifest JSON, extracts every researcher entry's pdf_link,
+    and downloads them concurrently using a thread pool.  Each PDF is
+    saved under ``<run_folder>/papers/<arxiv_id>.pdf``.
+
+    Args:
+        manifest_path: Path to the planner_manifest.json file.
+
+    Returns:
+        A JSON string summarising successes and failures, including a
+        mapping from researcher_id to the local PDF path.
+    """
+    import re
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    path = Path(manifest_path)
+    if not path.exists():
+        return json.dumps({"status": "error", "message": f"Manifest not found: {manifest_path}"})
+
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return json.dumps({"status": "error", "message": f"Could not parse manifest: {exc}"})
+
+    researchers = manifest.get("researchers", [])
+    if not researchers:
+        return json.dumps({"status": "error", "message": "No researchers found in manifest."})
+
+    run_folder = path.parent.as_posix()
+    papers_dir = Path(run_folder) / "papers"
+    papers_dir.mkdir(parents=True, exist_ok=True)
+
+    def _download_one(entry: dict) -> dict:
+        """Download a single PDF; returns a result dict."""
+        researcher_id = entry.get("id", "unknown")
+        pdf_url = entry.get("pdf_link", "")
+        if not pdf_url:
+            return {"id": researcher_id, "status": "skipped", "message": "No pdf_link"}
+
+        # Derive filename from URL
+        url_tail = pdf_url.rstrip("/").split("/")[-1]
+        sanitized = re.sub(r"\.pdf$", "", url_tail, flags=re.IGNORECASE)
+        sanitized = re.sub(r"[^\w.\-]", "_", sanitized)
+        filename = f"{sanitized}.pdf"
+        save_path = papers_dir / filename
+
+        if save_path.exists():
+            return {
+                "id": researcher_id,
+                "status": "already_exists",
+                "path": save_path.as_posix(),
+            }
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                time.sleep(3.1)  # ArXiv rate-limit
+                print(f"[bulk_download] Downloading {pdf_url} for {researcher_id} (attempt {attempt + 1})...")
+                resp = requests.get(pdf_url, timeout=60, stream=True)
+
+                if resp.status_code == 429:
+                    if attempt == max_retries - 1:
+                        return {"id": researcher_id, "status": "error", "message": "HTTP 429 after retries"}
+                    time.sleep(10)
+                    continue
+
+                resp.raise_for_status()
+                with open(save_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+                return {"id": researcher_id, "status": "success", "path": save_path.as_posix()}
+
+            except Exception as exc:
+                if attempt == max_retries - 1:
+                    return {"id": researcher_id, "status": "error", "message": str(exc)}
+                time.sleep(5)
+
+        return {"id": researcher_id, "status": "error", "message": "Exhausted retries."}
+
+    # Run downloads in parallel (cap at 4 to stay friendly to ArXiv)
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_download_one, entry): entry for entry in researchers}
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    # Sort results by researcher id for readability
+    results.sort(key=lambda r: r.get("id", ""))
+
+    successes = [r for r in results if r["status"] in ("success", "already_exists")]
+    failures = [r for r in results if r["status"] not in ("success", "already_exists")]
+
+    summary = {
+        "status": "complete",
+        "total": len(results),
+        "downloaded": len(successes),
+        "failed": len(failures),
+        "results": results,
+    }
+    print(f"[bulk_download] Done — {len(successes)} downloaded, {len(failures)} failed.", flush=True)
+    return json.dumps(summary, indent=2)
+
+
 def save_json_file(filename: str, data) -> str:
     """
     Saves JSON content to disk.

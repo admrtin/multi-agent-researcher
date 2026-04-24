@@ -14,7 +14,6 @@ from subagents.validator.agent import prompt as validator_prompt
 from tools.agent_tools import (
     save_markdown_file,
     save_json_file,
-    download_arxiv_pdf,
     load_json_file,
     load_pdf_file,
     gemini_models,
@@ -33,21 +32,36 @@ agent_name = "RESEARCHER"
 MAX_RESEARCHER_POOL = int(os.getenv("SEED_PAPER_COUNT", "10"))
 
 
-def _make_skip_callback(researcher_id: str):
+def _make_loop_callback(researcher_id: str, loop_index: int):
     """
-    Returns a before_agent_callback that reads the planner manifest at
-    *runtime* (not at import time) and skips this LoopAgent pair entirely
-    if researcher_id is not listed in the manifest.
+    Returns a before_agent_callback for a LoopAgent that:
 
-    This prevents unassigned agents from wasting API calls when the planner
-    assigns fewer researchers than MAX_RESEARCHER_POOL.
+    1. Skips the LoopAgent entirely if ``researcher_id`` is not listed in
+       the current planner manifest (prevents unassigned agents from
+       wasting API calls).
+    2. Stops the loop early if the ``exit_loop`` tool has already set the
+       ``loop_done_<N>`` state flag (replaces the old ``escalate``
+       approach which propagated up through ParallelAgent and killed
+       sibling agents).
     """
+    state_key = f"loop_done_{loop_index}"
+
     def _callback(callback_context: CallbackContext) -> Optional[types.Content]:
-        # Locate the latest manifest at invocation time.
+        # ── Check 1: Has exit_loop already signalled completion? ──
+        if callback_context.state.get(state_key, False):
+            print(
+                f"[CALLBACK] {researcher_id}: {state_key} is True, stopping loop.",
+                flush=True,
+            )
+            return types.Content(
+                role="model",
+                parts=[types.Part(text=f"Loop complete for {researcher_id}.")],
+            )
+
+        # ── Check 2: Is this researcher assigned in the manifest? ──
         try:
             manifest_path = get_latest_planner_manifest(base_dir="outputs")
         except FileNotFoundError:
-            # No manifest yet — skip this agent to be safe.
             return types.Content(
                 role="model",
                 parts=[types.Part(text=f"No manifest found, skipping {researcher_id}.")],
@@ -63,13 +77,12 @@ def _make_skip_callback(researcher_id: str):
 
         assigned_ids = {r["id"] for r in manifest.get("researchers", [])}
         if researcher_id not in assigned_ids:
-            # Return a Content object to skip this agent entirely.
             return types.Content(
                 role="model",
                 parts=[types.Part(text=f"No task assigned for {researcher_id}.")],
             )
 
-        # Return None to let the agent run normally.
+        # All checks pass — let the agent run normally.
         return None
 
     return _callback
@@ -96,7 +109,6 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
             + prompt
         ),
         tools=[
-            download_arxiv_pdf,
             load_pdf_file,
             save_markdown_file,
             load_json_file,
@@ -121,7 +133,7 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
         name=f"RESEARCH_AND_VALIDATE_{i}",
         sub_agents=[researcher, validator],
         max_iterations=3,
-        before_agent_callback=_make_skip_callback(researcher_id),
+        before_agent_callback=_make_loop_callback(researcher_id, i),
     )
     sub_agents.append(pair)
 

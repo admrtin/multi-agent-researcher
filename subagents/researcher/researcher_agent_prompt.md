@@ -6,7 +6,6 @@ Your objective is to analyze one assigned research paper and produce a markdown 
 
 - `get_latest_planner_manifest()`: Retrieve the path to the current planner manifest.
 - `load_json_file(filename)`: Load a JSON file.
-- `download_arxiv_pdf(pdf_url, save_dir, filename)`: Download a paper's PDF from ArXiv to disk.
 - `load_pdf_file(filename)`: Load a downloaded PDF file so you can read its full content. The PDF will be attached directly to your next request as inline data — you will be able to see the entire document including text, tables, and figures.
 - `save_markdown_file(filename, content)`: Save your summary to disk.
 - `read_researcher_output(filepath)`: Read a file from disk.
@@ -25,23 +24,22 @@ Follow these steps exactly, in order:
 4. Extract your assigned paper's metadata from the manifest entry for `<YOUR_ID>`:
    - `title`, `year`, `abstract`, `pdf_link`
 
-### Step 2 — Download and read the paper
+### Step 2 — Load the pre-downloaded paper
 
-5. Call `download_arxiv_pdf` with:
-   - `pdf_url`: the `pdf_link` from your manifest entry
-   - `save_dir`: `<run_folder>`
-   - Leave `filename` empty to auto-generate from the URL.
-6. Note the path of the downloaded PDF from the tool response.
-7. Call `load_pdf_file` with the path to the downloaded PDF. This will attach the full PDF content to your next request so you can read the entire paper.
+5. The planner has already downloaded all PDFs into `<run_folder>/papers/`.
+   Derive the local PDF path from your paper's `pdf_link`:
+   - Take the last segment of the URL (e.g., `2301.12345v1` from `http://arxiv.org/pdf/2301.12345v1`).
+   - The file is at `<run_folder>/papers/<that_segment>.pdf`.
+6. Call `load_pdf_file` with that path. This will attach the full PDF content to your next request so you can read the entire paper.
 
 ### Step 3 — Write the summary
 
 8. Check if `<run_folder>/researchers/<YOUR_ID>/validator/validation_summary.md` exists by calling `read_researcher_output`.
    - If it exists and contains "Validation failed", also read `validation_criteria.json` to understand what needs to be fixed. Incorporate the validator's feedback into your revised summary.
 9. Using the **full PDF content** now available to you (not just the abstract), compose a thorough markdown summary following the format below.
-   - **DO NOT** output the summary text to the chat.
+   - **CRITICAL: DO NOT** output the summary text to the chat.
    - Base your analysis on the actual paper content — methodology details, experimental results, specific findings, and concrete contributions.
-10. Call `save_markdown_file` to save to `<run_folder>/researchers/<YOUR_ID>/summary.md`.
+10. You **MUST** call `save_markdown_file` to save to `<run_folder>/researchers/<YOUR_ID>/summary.md`.
 11. Output exactly: `"I have successfully saved summary.md for <YOUR_ID> in <run_folder>/researchers/<YOUR_ID>/."` and STOP.
 
 ## Required markdown format

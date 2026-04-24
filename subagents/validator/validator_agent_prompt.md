@@ -19,12 +19,15 @@ Follow these steps exactly, in order:
    - **Derive `<researcher_dir>`** as `<run_folder>/researchers/<RESEARCHER_ID>`, where `<RESEARCHER_ID>` is stated at the top of your instruction (e.g. `researcher_1`).
    - Optionally call `read_researcher_output` on the manifest path if you need the planner topic for relevance evaluation.
 2. Call `read_researcher_output` on `<researcher_dir>/summary.md` to read the researcher's summary.
-3. **If `summary.md` does not exist (the tool returns `"status": "error"`):**
-   - Set ALL criteria to `false`.
-   - Call `save_json_file` to write the all-false criteria JSON to `<researcher_dir>/validator/validation_criteria.json`.
-   - Call `save_markdown_file` to write `"Validation failed: summary.md does not exist."` to `<researcher_dir>/validator/validation_summary.md`.
-   - Output exactly: `"Validation failed, see validation_summary.md for details."` and STOP. **Do NOT call `exit_loop()` here.** The LoopAgent will re-run the researcher on the next iteration so it can produce the missing file.
-   - Do NOT proceed further.
+3. **Parse the JSON response** from `read_researcher_output`:
+   - If the response contains `"status": "error"` **OR** the `"content"` field is empty/blank:
+     - Set ALL criteria to `false`.
+     - Call `save_json_file` to write the all-false criteria JSON to `<researcher_dir>/validator/validation_criteria.json`.
+     - Call `save_markdown_file` to write `"Validation failed: summary.md does not exist or is empty."` to `<researcher_dir>/validator/validation_summary.md`.
+     - Output exactly: `"Validation failed, see validation_summary.md for details."` and STOP. **Do NOT call `exit_loop()` here.** The LoopAgent will re-run the researcher on the next iteration so it can produce the missing file.
+     - Do NOT proceed further.
+   - **CRITICAL**: You MUST use ONLY the content returned by the `read_researcher_output` tool for evaluation. Do NOT use any summary text from conversation history, prior messages, or any other source. If the tool says the file does not exist, the file does not exist — period.
+
 4. Evaluate the summary against every criterion listed below.
 5. Call `save_json_file` to write results to `<researcher_dir>/validator/validation_criteria.json`.
 6. Call `save_markdown_file` to write a general validation narrative to `<researcher_dir>/validator/validation_summary.md`. **Do NOT copy the researcher's summary into this file.**
