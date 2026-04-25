@@ -1,57 +1,93 @@
 # JSON Architecture
 
-The run folder, defined in `run_folder.md`, should be instantiated at the start of the program.
+The run folder, defined in `run_folder.md`, is instantiated once per planner run.
 
 The JSON files that need to be created are:
-- In the validator of each researcher: `validation_criteria.json`
-- In the main folder: `planner_manifest.json`
+
+- In the main run folder:
+  - `planner_manifest.json`
+
+- In each researcher validator folder:
+  - `validation_criteria.json`
+
+- In the synthesis folder:
+  - `synthesis_summary.json`
 
 ## JSON Format
+
 ### `validation_criteria.json`
+
 ```json
 {
-    "summary_exists": false,
-    "summary_relevant_to_planner_topic": false,
-    "summary_scientifically_grounded": false,
-    "summary_grammatically_correct": false,
-    "citations_exist": false,
-    "citations_valid": false,
-    "citations_relevant_to_summary": false
+  "researcher_summary_exists": false,
+  "researcher_summary_relevant_to_planner_topic": false,
+  "researcher_summary_scientifically_grounded": false,
+  "researcher_summary_grammatically_correct": false,
+  "citations_exist": false,
+  "citations_valid": false,
+  "citations_relevant_to_summary": false
 }
 ```
 
-The researcher agent:
-1. deep dives into the paper assigned to it
-2. generates a markdown summary of the paper
-3. uses the validator sub-agent as an `agent_tool` to update the `validation_criteria.json` file
+The validator agent:
 
-If any of the values in the `validation_criteria.json` file are false, the researcher needs to fix their summary by looping back to step 2, adding or removing content from the summary. If the validator returns all true, the researcher's summary is complete and ready to be used by the synthesizer agent.
+1. Reads the researcher’s `summary.md`.
+2. Evaluates the summary against the validation criteria.
+3. Saves the results to `validation_criteria.json`.
+4. Saves narrative feedback to `validation_summary.md`.
+
+If any value in `validation_criteria.json` is `false`, the researcher loop should revise `summary.md` and run validation again. If all values are `true`, the researcher’s summary is complete and ready for the Synthesizer Agent.
+
+The Synthesizer Agent reads `planner_manifest.json` and each validated researcher `summary.md`, then saves a final structured synthesis to `synthesis_summary.json` and a readable literature review to `synthesis_report.md`.
 
 ### `planner_manifest.json`
 ```json
 {
-    "timestamp": "<timestamp>",
-    "planner_topic": "<planner_topic>",
-    "researchers": [
-        {
-            "id": "researcher_1",
-            "paper": "<paper_name_1>.pdf",
-            "summary": "<paper_name_1>_summary.md",
-        },
-        {
-            "id": "researcher_2",
-            "paper": "<paper_name_2>.pdf",
-            "summary": "<paper_name_2>_summary.md",
-        },
-        /* ... */,
-        {
-            "id": "researcher_n",
-            "paper": "<paper_name_n>.pdf",
-            "summary": "<paper_name_n>_summary.md",
-        }
-    ]
+  "planner_topic": "<planner_topic>",
+  "timestamp": "<timestamp>",
+  "researchers": [
+    {
+      "id": "researcher_1",
+      "title": "<paper_title>",
+      "year": "<paper_year>",
+      "abstract": "<paper_abstract>",
+      "pdf_link": "<paper_pdf_url>",
+      "summary": "summary.md"
+    },
+    {
+      "id": "researcher_2",
+      "title": "<paper_title>",
+      "year": "<paper_year>",
+      "abstract": "<paper_abstract>",
+      "pdf_link": "<paper_pdf_url>",
+      "summary": "summary.md"
+    }
+  ]
 }
 ```
-The planner manifest contains the "global" information about the run, including the planner topic, the timestamp, and what papers/summaries each researcher is responsible for.
+The planner manifest contains the global information for the run, including the planner topic, timestamp, assigned researcher IDs, paper metadata, PDF links, and expected summary filename.
 
-The synthesizer agent needs to be aware of the entire contents of the `planner_manifest.json` file so that it can use the summaries to generate a comprehensive literature review.
+### `synthesis_summary.json`
+```json
+{
+  "planner_topic": "",
+  "timestamp": "",
+  "papers_synthesized": [
+    {
+      "researcher_id": "",
+      "title": "",
+      "year": "",
+      "summary_path": ""
+    }
+  ],
+  "missing_outputs": [],
+  "shared_themes": [],
+  "key_differences": [],
+  "limitations": [],
+  "research_gaps": [],
+  "future_directions": [],
+  "relevance_to_topic": ""
+}
+```
+
+The Synthesizer Agent reads planner_manifest.json and each validated researcher summary.md, then saves a final structured synthesis to synthesis_summary.json and a readable literature review to synthesis_report.md.

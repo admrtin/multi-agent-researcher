@@ -33,7 +33,7 @@ Follow these steps exactly, in order:
 6. Call `save_markdown_file` to write a general validation narrative to `<researcher_dir>/validator/validation_summary.md`. **Do NOT copy the researcher's summary into this file.**
 7. Determine outcome:
    - **Fail**: If any criterion is `false`, output exactly: `"Validation failed, see validation_summary.md for details."` and STOP.
-   - **Pass**: If all criteria are `true`, output exactly: `"Validation passed."` Then immediately call `exit_loop()`. Do NOT output anything else.
+   - **Pass**: If all criteria are `true`, output exactly: `"Validation passed."` Then immediately call `exit_loop()` and STOP execution. Do NOT output anything else.
 
 ## Output rules (CRITICAL)
 

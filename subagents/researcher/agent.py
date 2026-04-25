@@ -82,6 +82,22 @@ def _make_loop_callback(researcher_id: str, loop_index: int):
                 parts=[types.Part(text=f"No task assigned for {researcher_id}.")],
             )
 
+        # ── Check 3: Has this researcher already passed validation on disk? ──
+        researcher_dir = Path(manifest_path).parent / "researchers" / researcher_id
+        validation_summary_path = researcher_dir / "validator" / "validation_summary.md"
+
+        if validation_summary_path.exists():
+            content = validation_summary_path.read_text(encoding="utf-8")
+            if "Validation passed" in content:
+                print(
+                    f"[CALLBACK] {researcher_id}: validation already passed, stopping loop.",
+                    flush=True,
+                )
+                return types.Content(
+                    role="model",
+                    parts=[types.Part(text=f"Loop complete for {researcher_id}.")],
+                )
+
         # All checks pass — let the agent run normally.
         return None
 
@@ -132,7 +148,7 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
     pair = LoopAgent(
         name=f"RESEARCH_AND_VALIDATE_{i}",
         sub_agents=[researcher, validator],
-        max_iterations=3,
+        max_iterations=5,
         before_agent_callback=_make_loop_callback(researcher_id, i),
     )
     sub_agents.append(pair)

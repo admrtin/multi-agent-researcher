@@ -29,14 +29,25 @@ load_dotenv()
 
 def exit_loop(tool_context: ToolContext) -> dict:
     """
-    Signals the enclosing LoopAgent to stop iterating immediately.
+    Signals the current researcher/validator LoopAgent to stop iterating.
 
-    Call this tool once validation has passed (or when the task is
-    confirmed complete) to prevent the LoopAgent from running further
-    researcher → validator cycles unnecessarily.
+    This sets a loop_done_<N> state flag based on the active agent name,
+    allowing the matching LoopAgent callback to stop only that completed
+    researcher loop without stopping sibling agents or the parent pipeline.
     """
-    tool_context.actions.escalate = True
-    return {"status": "loop_exited", "message": "Loop terminated successfully."}
+    import re
+
+    agent_name = getattr(tool_context, "agent_name", "") or ""
+    match = re.search(r"_(\d+)$", agent_name)
+
+    if match:
+        loop_index = match.group(1)
+        tool_context.state[f"loop_done_{loop_index}"] = True
+
+    return {
+        "status": "loop_exited",
+        "message": f"Loop terminated successfully for {agent_name}.",
+    }
 
 
 def save_markdown_file(filename: str, content: str) -> str:

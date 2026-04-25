@@ -5,6 +5,7 @@ from tools.agent_tools import (
     save_json_file,
     load_json_file,
     get_latest_run_dir,
+    read_researcher_output,
     gemini_models,
 )
 
@@ -20,5 +21,6 @@ synthesizer_agent = Agent(
         save_json_file,
         load_json_file,
         get_latest_run_dir,
+        read_researcher_output,
     ],
 )

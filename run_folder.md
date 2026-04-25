@@ -1,20 +1,35 @@
 # Run Folder Design
 
-The run folder needs to be instantiated once at the start of the program. The contents of the folder will be as follows:
+The run folder is instantiated once per planner run. The contents of the folder will be as follows:
 
 ```text
 ./outputs/run_<timestamp>/
+├── planner_manifest.json
+├── papers/
+│   ├── <paper_1>.pdf
+│   ├── <paper_2>.pdf
+│   └── ...
 ├── researchers/
 │   ├── researcher_1/
-│   │   ├── validator/
-|   |   |    ├── summary.md
-|   |   |    └── validation_criteria.json
-│   │   ├── summary.md
 │   │   ├── tasking.md
+│   │   ├── summary.md
+│   │   └── validator/
+│   │       ├── validation_criteria.json
+│   │       └── validation_summary.md
 │   ├── researcher_2/
-│   ├── .../
+│   │   ├── tasking.md
+│   │   ├── summary.md
+│   │   └── validator/
+│   │       ├── validation_criteria.json
+│   │       └── validation_summary.md
+│   ├── ...
 │   └── researcher_n/
-├── pdfs/
-├── synthesis/
-└── planner_manifest.json
+│       ├── tasking.md
+│       ├── summary.md
+│       └── validator/
+│           ├── validation_criteria.json
+│           └── validation_summary.md
+└── synthesis/
+    ├── synthesis_report.md
+    └── synthesis_summary.json
 ```
