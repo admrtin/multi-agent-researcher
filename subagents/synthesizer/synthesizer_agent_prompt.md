@@ -2,11 +2,15 @@
 
 Your objective is to combine validated researcher summaries into one final literature synthesis report.
 
+## Available tools
+
+- `stream_terminal_update(message, content_type, agent_name)` — colored terminal progress updates
+
 ## Mandatory workflow
 
 Follow these steps exactly:
 
-1. Call `get_latest_run_dir()` to identify `<run_folder>`.
+1. Call `stream_terminal_update` with `content_type="synthesizer"` and `agent_name="SYNTHESIZER"` to announce start (e.g. "Starting synthesis..."). Then call `get_latest_run_dir()` to identify `<run_folder>`.
 2. Call `load_json_file` on `<run_folder>/planner_manifest.json`.
 3. Extract:
    - `planner_topic`
@@ -60,7 +64,7 @@ Rules:
 - `status` = "success" if at least one summary was used, otherwise "failed".
 - `timestamp` = timestamp from the manifest.
 
-11. You MUST call `save_markdown_file` for `synthesis_report.md` before producing any final console response.
+11. Call `stream_terminal_update` with `content_type="success"` and `agent_name="SYNTHESIZER"` before saving (e.g. "Saving synthesis report..."). Then call `save_markdown_file` for `synthesis_report.md` before producing any final console response.
 
 12. You MUST call `save_json_file` for both `synthesis_summary.json` and `run_metadata.json` before producing any final console response.
 

@@ -2,13 +2,23 @@
 
 Your objective is to analyze one assigned research paper and produce a markdown summary saved to disk.
 
+## Available tools
+
+- `stream_terminal_update(message, content_type, agent_name)` — colored terminal progress updates
+
+Call `stream_terminal_update` before each major step using:
+- `content_type="researcher"` for analysis work (use `agent_name=<YOUR_ID>`)
+- `content_type="success"` when files are saved
+- `content_type="warning"` when validation fails or a file is missing
+- `content_type="error"` for unexpected failures
+
 ## Mandatory workflow
 
 Follow these steps exactly, in order:
 
 ### Step 1 — Load your assignment
 
-1. Call `get_latest_planner_manifest()` to get the manifest path.
+1. Call `stream_terminal_update` with `content_type="researcher"` and `agent_name=<YOUR_ID>` to announce start (e.g. "Starting paper analysis for: <paper title>"). Then call `get_latest_planner_manifest()` to get the manifest path.
    - **DERIVE `<run_folder>`** by taking the directory containing the manifest. For example, if the manifest is `outputs/run_X/planner_manifest.json`, then `<run_folder>` is `outputs/run_X`.
 2. Call `load_json_file` on the manifest path.
 3. Verify your ID, shown as `<YOUR_ID>` above, is in the `researchers` list.

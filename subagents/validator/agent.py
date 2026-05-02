@@ -6,6 +6,7 @@ from tools.agent_tools import (
     gemini_models,
     read_researcher_output,
     exit_loop,
+    stream_terminal_update,
 )
 
 prompt = Path("./subagents/validator/validator_agent_prompt.md").read_text()
@@ -19,5 +20,6 @@ validator_agent = Agent(
         save_json_file,
         read_researcher_output,
         exit_loop,
+        stream_terminal_update,
     ],
 )

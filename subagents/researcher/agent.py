@@ -20,6 +20,8 @@ from tools.agent_tools import (
     get_latest_planner_manifest,
     read_researcher_output,
     exit_loop,
+    stream_terminal_update,
+    _callback_print,
 )
 
 load_dotenv()
@@ -49,10 +51,7 @@ def _make_loop_callback(researcher_id: str, loop_index: int):
     def _callback(callback_context: CallbackContext) -> Optional[types.Content]:
         # ── Check 1: Has exit_loop already signalled completion? ──
         if callback_context.state.get(state_key, False):
-            print(
-                f"[CALLBACK] {researcher_id}: {state_key} is True, stopping loop.",
-                flush=True,
-            )
+            _callback_print(researcher_id, f"{state_key} set — stopping loop")
             return types.Content(
                 role="model",
                 parts=[types.Part(text=f"Loop complete for {researcher_id}.")],
@@ -89,10 +88,7 @@ def _make_loop_callback(researcher_id: str, loop_index: int):
         if validation_summary_path.exists():
             content = validation_summary_path.read_text(encoding="utf-8")
             if "Validation passed" in content:
-                print(
-                    f"[CALLBACK] {researcher_id}: validation already passed, stopping loop.",
-                    flush=True,
-                )
+                _callback_print(researcher_id, "validation already passed — stopping loop")
                 return types.Content(
                     role="model",
                     parts=[types.Part(text=f"Loop complete for {researcher_id}.")],
@@ -130,18 +126,21 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
             load_json_file,
             get_latest_planner_manifest,
             read_researcher_output,
+            stream_terminal_update,
         ],
     )
 
+    validator_id = f"validator_{i}"
     validator = Agent(
         name=f"VALIDATOR_{i}",
         model=gemini_models.VALIDATOR,
         instruction=(
+            f"Your <VALIDATOR_ID> is {validator_id}.\n"
             f"You are validating {researcher_id}.\n"
             f"Use the `get_latest_planner_manifest` tool to locate the current manifest if needed.\n\n"
             + validator_prompt
         ),
-        tools=[save_markdown_file, save_json_file, get_latest_planner_manifest, read_researcher_output, exit_loop],
+        tools=[save_markdown_file, save_json_file, get_latest_planner_manifest, read_researcher_output, exit_loop, stream_terminal_update],
         include_contents="none",
     )
 
@@ -156,7 +155,7 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
 # ─── Chunk into parallel groups ────────────────────────────────────────
 # Keep chunk size small to avoid hitting Gemini API rate limits
 # (1M input tokens/minute on the free/paid tier).
-CHUNK_SIZE = 2
+CHUNK_SIZE = 1
 chunked_agents = []
 for i in range(0, len(sub_agents), CHUNK_SIZE):
     chunk = sub_agents[i:i + CHUNK_SIZE]
