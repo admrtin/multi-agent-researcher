@@ -4,6 +4,7 @@ import json
 import logging
 import mimetypes
 import os
+from pathlib import Path
 import shutil
 import sys
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ import xml.etree.ElementTree as ET
 from typing import Any, TYPE_CHECKING
 
 from google.adk.tools import BaseTool
+from google import genai
 from google.genai import types
 import requests
 from dotenv import load_dotenv
@@ -25,15 +27,106 @@ if TYPE_CHECKING:
 
 load_dotenv()
 
+_C_TOOL     = "\033[94m"   # bright blue   — tool operations
+_C_WARN     = "\033[93m"   # bright yellow — warnings
+_C_ERROR    = "\033[91m"   # bright red    — errors
+_C_CALLBACK = "\033[90m"   # dark gray     — loop control signals
+_RESET      = "\033[0m"
+
+# TUI callback hook — registered by dashboard.py on startup.
+# Signature: (prefix: str, message: str, content_type: str, agent_name: str) -> None
+# When None (default), stream_terminal_update falls through to print() as normal.
+_tui_callback = None
+
+
+def _tool_print(label: str, message: str) -> None:
+    if _tui_callback is not None:
+        _tui_callback(f"  ▸ [{label}]", message, "step", "TOOL")
+    else:
+        print(f"{_C_TOOL}  ▸ [{label}] {message}{_RESET}", flush=True)
+
+def _warn_print(label: str, message: str) -> None:
+    if _tui_callback is not None:
+        _tui_callback(f"  ⚠ [{label}]", message, "warning", "TOOL")
+    else:
+        print(f"{_C_WARN}  ⚠ [{label}] {message}{_RESET}", flush=True)
+
+def _error_print(label: str, message: str) -> None:
+    if _tui_callback is not None:
+        _tui_callback(f"  ✗ [{label}]", message, "error", "TOOL")
+    else:
+        print(f"{_C_ERROR}  ✗ [{label}] {message}{_RESET}", file=sys.stderr, flush=True)
+
+def _callback_print(agent_id: str, message: str) -> None:
+    """Colorized status line for LoopAgent before_agent_callback."""
+    if _tui_callback is not None:
+        _tui_callback(f"  ↩ [loop:{agent_id}]", message, "info", agent_id)
+    else:
+        print(f"{_C_CALLBACK}  ↩ [loop:{agent_id}] {message}{_RESET}", flush=True)
+
+
+def stream_terminal_update(
+    message: str,
+    content_type: str = "info",
+    agent_name: str = "SYSTEM",
+) -> str:
+    """
+    Prints a colorized, immediate progress message to terminal output.
+    Useful when running `adk run .` so users can see streaming status updates.
+    """
+    color_map = {
+        "info": "\033[96m",
+        "step": "\033[94m",
+        "success": "\033[92m",
+        "warning": "\033[93m",
+        "error": "\033[91m",
+        "planner": "\033[95m",
+        "researcher": "\033[36m",
+        "validator": "\033[33m",
+        "synthesizer": "\033[35m",
+    }
+    reset = "\033[0m"
+
+    import re as _re
+    _AGENT_TYPES = {"planner", "researcher", "validator", "synthesizer"}
+
+    key = (content_type or "info").strip().lower()
+    color = color_map.get(key, color_map["info"])
+    name_upper = agent_name.upper()
+
+    if key in _AGENT_TYPES:
+        # "researcher_1" / "RESEARCHER_1" → "[RESEARCHER:1]"
+        # "PLANNER" / "SYNTHESIZER"        → "[PLANNER]" / "[SYNTHESIZER]"
+        m = _re.search(r"[_\s](\d+)$", name_upper)
+        if m:
+            base = _re.sub(r"[_\s]\d+$", "", name_upper)
+            prefix = f"[{base}:{m.group(1)}]"
+        else:
+            prefix = f"[{name_upper}]"
+    else:
+        prefix = f"[{name_upper}:{key.upper()}]"
+    rendered = f"{color}{prefix} {message}{reset}"
+
+    if _tui_callback is not None:
+        _tui_callback(prefix, message, content_type, agent_name)
+    else:
+        print(rendered, flush=True)
+
+    return f"{prefix} {message}"
 
 
 def exit_loop(tool_context: ToolContext) -> dict:
     """
     Signals the current researcher/validator LoopAgent to stop iterating.
 
-    This sets a loop_done_<N> state flag based on the active agent name,
-    allowing the matching LoopAgent callback to stop only that completed
-    researcher loop without stopping sibling agents or the parent pipeline.
+    Two mechanisms are used together:
+    - actions.escalate = True  → consumed by LoopAgent._run_async_impl; this is
+      what actually stops the running loop.  In ADK 1.27, ParallelAgent and
+      SequentialAgent do not react to escalate, so only the enclosing LoopAgent
+      stops — sibling researchers are unaffected.
+    - state["loop_done_N"] = True  → checked by before_agent_callback as a
+      guard against re-entry (the callback fires once before the loop starts,
+      not between iterations, so it cannot stop a running loop by itself).
     """
     import re
 
@@ -43,6 +136,9 @@ def exit_loop(tool_context: ToolContext) -> dict:
     if match:
         loop_index = match.group(1)
         tool_context.state[f"loop_done_{loop_index}"] = True
+
+    # Actually stop the running LoopAgent.
+    tool_context.actions.escalate = True
 
     return {
         "status": "loop_exited",
@@ -61,12 +157,10 @@ def save_markdown_file(filename: str, content: str) -> str:
         
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-        msg = f"[TOOL] save_markdown_file: Saved {len(content)} bytes to {path.as_posix()}"
-        print(msg, flush=True)
+        _tool_print("save_md", f"Saved {len(content)} bytes → {path.as_posix()}")
         return f"Successfully saved {path.as_posix()} to disk."
     except Exception as e:
-        msg = f"[TOOL ERROR] save_markdown_file: {e}"
-        print(msg, file=sys.stderr, flush=True)
+        _error_print("save_md", str(e))
         return f"Error saving file: {e}"
 
 def read_researcher_output(researcher_output_path: str) -> str:
@@ -74,15 +168,13 @@ def read_researcher_output(researcher_output_path: str) -> str:
     try:
         path = Path(researcher_output_path)
         exists = path.exists()
-        msg = f"[TOOL] read_researcher_output: Reading {path.as_posix()} (exists={exists})"
-        print(msg, flush=True)
+        _tool_print("read_file", f"{path.as_posix()} (exists={exists})")
         if not exists:
             return json.dumps({"status": "error", "message": f"File not found: {researcher_output_path}"})
         content = path.read_text(encoding="utf-8")
         return json.dumps({"status": "success", "content": content})
     except Exception as e:
-        msg = f"[TOOL ERROR] read_researcher_output: {e}"
-        print(msg, file=sys.stderr, flush=True)
+        _error_print("read_file", str(e))
         return json.dumps({"status": "error", "message": str(e)})
 
 def load_json_file(filename: str) -> str:
@@ -91,14 +183,12 @@ def load_json_file(filename: str) -> str:
     """
     try:
         path = Path(filename)
-        msg = f"[TOOL] load_json_file: Reading {path.as_posix()}"
-        print(msg, flush=True)
+        _tool_print("load_json", path.as_posix())
         if not path.exists():
              return json.dumps({"status": "error", "message": f"File not found: {filename}"})
         return path.read_text(encoding="utf-8")
     except Exception as e:
-        msg = f"[TOOL ERROR] load_json_file: {e}"
-        print(msg, file=sys.stderr, flush=True)
+        _error_print("load_json", str(e))
         return json.dumps({"status": "error", "message": str(e)})
 
 
@@ -135,9 +225,9 @@ def create_run_output_dir(base_dir: str = "outputs", keep_last: int = 3) -> str:
             try:
                 shutil.rmtree(old_dir)
             except PermissionError:
-                print(f"Warning: Could not delete locked run folder: {old_dir}")
+                _warn_print("create_dir", f"Could not delete locked run folder: {old_dir}")
             except OSError as exc:
-                print(f"Warning: Could not delete {old_dir}: {exc}")
+                _warn_print("create_dir", f"Could not delete {old_dir}: {exc}")
 
     return run_dir.as_posix()
 
@@ -155,8 +245,8 @@ def search_arxiv(query: str, max_results: int = 10) -> str:
         "start": 0,
         "max_results": max_results
     }
-    print(f"Making request to ArXiv with query: {query}")
-    
+    _tool_print("arXiv search", f"query={query!r}")
+
     import time
     max_retries = 3
     xml_data = None
@@ -168,7 +258,7 @@ def search_arxiv(query: str, max_results: int = 10) -> str:
             if response.status_code == 429:
                 if attempt == max_retries - 1:
                     return json.dumps([{"error": "Failed to retrieve papers: HTTP 429 Too Many Requests"}], indent=2)
-                print(f"Rate limited by ArXiv. Retrying in 10 seconds...")
+                _warn_print("arXiv search", "rate limited — retrying in 10 s…")
                 time.sleep(10)
                 continue
             response.raise_for_status()
@@ -177,7 +267,7 @@ def search_arxiv(query: str, max_results: int = 10) -> str:
         except Exception as e:
             if attempt == max_retries - 1:
                 return json.dumps([{"error": f"Failed to retrieve papers: {e}"}], indent=2)
-            print(f"Error accessing ArXiv: {e}. Retrying in 5 seconds...")
+            _warn_print("arXiv search", f"request error: {e} — retrying in 5 s…")
             time.sleep(5)
 
     if not xml_data:
@@ -219,7 +309,7 @@ def search_arxiv(query: str, max_results: int = 10) -> str:
             "pdf_link": pdf_link,
             "abstract": abstract
         })
-    print(f"Found {len(papers)} papers on ArXiv.")
+    _tool_print("arXiv search", f"found {len(papers)} papers")
     return json.dumps(papers, indent=2)
 
 
@@ -257,13 +347,13 @@ def download_arxiv_pdf(pdf_url: str, save_dir: str, filename: str = "") -> str:
     for attempt in range(max_retries):
         try:
             time.sleep(3.1)  # Respect ArXiv rate limit
-            print(f"Downloading PDF from {pdf_url} (attempt {attempt + 1})...")
+            _tool_print("download", f"{pdf_url} (attempt {attempt + 1})")
             response = requests.get(pdf_url, timeout=60, stream=True)
 
             if response.status_code == 429:
                 if attempt == max_retries - 1:
                     return f"Failed to download {pdf_url}: HTTP 429 Too Many Requests after {max_retries} attempts."
-                print("Rate limited. Retrying in 10 seconds...")
+                _warn_print("download", "rate limited — retrying in 10 s…")
                 time.sleep(10)
                 continue
 
@@ -278,7 +368,7 @@ def download_arxiv_pdf(pdf_url: str, save_dir: str, filename: str = "") -> str:
         except Exception as e:
             if attempt == max_retries - 1:
                 return f"Failed to download {pdf_url} after {max_retries} attempts: {e}"
-            print(f"Download error: {e}. Retrying in 5 seconds...")
+            _warn_print("download", f"error: {e} — retrying in 5 s…")
             time.sleep(5)
 
     return f"Failed to download {pdf_url}: exhausted all retries."
@@ -345,7 +435,7 @@ def bulk_download_arxiv_pdfs(manifest_path: str) -> str:
         for attempt in range(max_retries):
             try:
                 time.sleep(3.1)  # ArXiv rate-limit
-                print(f"[bulk_download] Downloading {pdf_url} for {researcher_id} (attempt {attempt + 1})...")
+                _tool_print("bulk download", f"{researcher_id} → {pdf_url} (attempt {attempt + 1})")
                 resp = requests.get(pdf_url, timeout=60, stream=True)
 
                 if resp.status_code == 429:
@@ -388,7 +478,7 @@ def bulk_download_arxiv_pdfs(manifest_path: str) -> str:
         "failed": len(failures),
         "results": results,
     }
-    print(f"[bulk_download] Done — {len(successes)} downloaded, {len(failures)} failed.", flush=True)
+    _tool_print("bulk download", f"done — {len(successes)} downloaded, {len(failures)} failed")
     return json.dumps(summary, indent=2)
 
 
@@ -411,8 +501,7 @@ def save_json_file(filename: str, data) -> str:
         # If data is already a dict or list, write it directly
         if isinstance(data, (dict, list)):
             path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            msg = f"[TOOL] save_json_file: Saved to {path.as_posix()}"
-            print(msg, flush=True)
+            _tool_print("save_json", f"Saved → {path.as_posix()}")
             return f"Successfully saved {path.as_posix()} to disk."
 
         # Otherwise treat as a string that may need cleaning
@@ -434,31 +523,21 @@ def save_json_file(filename: str, data) -> str:
             parsed = ast.literal_eval(clean_data)
 
         path.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
-        msg = f"[TOOL] save_json_file: Saved to {path.as_posix()}"
-        print(msg, flush=True)
+        _tool_print("save_json", f"Saved → {path.as_posix()}")
         return f"Successfully saved {path.as_posix()} to disk."
     except Exception as e:
-        msg = f"[TOOL ERROR] save_json_file: {e}"
-        print(msg, file=sys.stderr, flush=True)
+        _error_print("save_json", str(e))
         return f"Error saving JSON: {e}. Please ensure you are outputting a valid JSON string without single quotes for property names."
 
 
-
-
-class LoadPdfFileTool(BaseTool):
-    """Load a local PDF and attach it to the next Gemini request as PDF bytes."""
-
-    def __init__(self) -> None:
+class UploadPdfFileTool(BaseTool):
+    def __init__(self):
         super().__init__(
-            name="load_pdf_file",
-            description=(
-                "Loads a local PDF file by path and attaches it directly to the "
-                "model request as application/pdf inline data. Use this for PDFs "
-                "where layout, tables, figures, or page structure matter."
-            ),
+            name="upload_pdf_file",
+            description="Uploads a local PDF to Gemini Files API and returns reusable file URI."
         )
 
-    def _get_declaration(self) -> types.FunctionDeclaration:
+    def _get_declaration(self):
         return types.FunctionDeclaration(
             name=self.name,
             description=self.description,
@@ -467,107 +546,61 @@ class LoadPdfFileTool(BaseTool):
                 properties={
                     "filename": types.Schema(
                         type=types.Type.STRING,
-                        description="Local filesystem path to the PDF file.",
-                    ),
+                        description="Local PDF path"
+                    )
                 },
-                required=["filename"],
-            ),
+                required=["filename"]
+            )
         )
 
-    async def run_async(
-        self,
-        *,
-        args: dict[str, Any],
-        tool_context: "ToolContext",
-    ) -> dict[str, Any]:
-        filename = str(args.get("filename", "")).strip()
-        if not filename:
-            return {"status": "error", "message": "Missing filename."}
+    async def run_async(self, *, args, tool_context):
+        filename = args["filename"]
+        path = Path(filename)
 
-        path = Path(filename).expanduser()
         if not path.exists():
-            return {"status": "error", "message": f"File not found: {filename}"}
-        if not path.is_file():
-            return {"status": "error", "message": f"Not a file: {filename}"}
+            _error_print("upload_pdf_file", f"File not found: {filename}")
+            return {"status": "error", "message": "File not found"}
 
-        mime_type = mimetypes.guess_type(path.name)[0] or "application/pdf"
-        if path.suffix.lower() != ".pdf" and mime_type != "application/pdf":
+        cache_file = path.parent / "file_cache.json"
+        cache_data = {}
+
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r") as f:
+                    cache_data = json.load(f)
+            except json.JSONDecodeError:
+                pass 
+
+        if path.name in cache_data:
+            _tool_print("upload_pdf_file", f"⚡ Cache hit! Reusing URI for {path.name}")
             return {
-                "status": "error",
-                "message": f"Expected a PDF file, got: {path.name}",
+                "status": "success",
+                "filename": filename,
+                "file_uri": cache_data[path.name],
+                "mime_type": "application/pdf"
             }
+
+        _tool_print("upload_pdf_file", f"☁️ Uploading {path.name} to Gemini...")
+        
+        client = genai.Client(
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            vertexai=False 
+        )
+        uploaded = client.files.upload(file=path)
+
+        cache_data[path.name] = uploaded.uri
+
+        with open(cache_file, "w") as f:
+            json.dump(cache_data, f, indent=4)
 
         return {
             "status": "success",
-            "filename": path.as_posix(),
-            "mime_type": "application/pdf",
-            "size_bytes": path.stat().st_size,
-            "message": (
-                "PDF will be attached directly to the next model request as "
-                "application/pdf inline data."
-            ),
+            "filename": filename,
+            "file_uri": uploaded.uri,
+            "mime_type": "application/pdf"
         }
 
-    async def process_llm_request(
-        self,
-        *,
-        tool_context: "ToolContext",
-        llm_request: "LlmRequest",
-    ) -> None:
-        await super().process_llm_request(
-            tool_context=tool_context,
-            llm_request=llm_request,
-        )
-
-        filenames = self._filenames_from_last_tool_response(llm_request)
-        for filename in filenames:
-            path = Path(filename)
-            try:
-                data = path.read_bytes()
-            except OSError:
-                continue
-
-            llm_request.contents.append(
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(
-                            text=(
-                                f"PDF file {path.as_posix()} is attached as "
-                                "application/pdf inline data. Analyze the "
-                                "document directly, preserving table and "
-                                "layout information when relevant."
-                            )
-                        ),
-                        types.Part.from_bytes(
-                            data=data,
-                            mime_type="application/pdf",
-                        ),
-                    ],
-                )
-            )
-
-    def _filenames_from_last_tool_response(
-        self,
-        llm_request: "LlmRequest",
-    ) -> list[str]:
-        if not llm_request.contents or not llm_request.contents[-1].parts:
-            return []
-
-        filenames: list[str] = []
-        for part in llm_request.contents[-1].parts:
-            function_response = part.function_response
-            if not function_response or function_response.name != self.name:
-                continue
-
-            response = function_response.response or {}
-            if response.get("status") == "success" and response.get("filename"):
-                filenames.append(str(response["filename"]))
-
-        return filenames
-
-
-load_pdf_file = LoadPdfFileTool()
+upload_pdf_file = UploadPdfFileTool()
 
 def get_latest_planner_manifest(base_dir: str = "outputs") -> str:
     """

@@ -7,6 +7,7 @@ from tools.agent_tools import (
     get_latest_run_dir,
     read_researcher_output,
     gemini_models,
+    stream_terminal_update,
 )
 
 prompt = Path("./subagents/synthesizer/synthesizer_agent_prompt.md").read_text()
@@ -22,5 +23,7 @@ synthesizer_agent = Agent(
         load_json_file,
         get_latest_run_dir,
         read_researcher_output,
+        stream_terminal_update,
     ],
+    include_contents="none",
 )
