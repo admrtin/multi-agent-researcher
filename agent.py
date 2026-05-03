@@ -32,8 +32,10 @@ root_agent = Agent(
 # We use a small delay and a background thread to ensure it appears after
 # the initial ADK log setup and experimental warnings.
 def _delayed_greeting():
-    import time
+    import os, time
 
+    if os.getenv("ADK_TUI_MODE"):
+        return
     time.sleep(0.5)
     _BOLD_CYAN = "\033[1;96m"
     _RESET     = "\033[0m"

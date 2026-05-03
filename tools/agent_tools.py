@@ -33,19 +33,36 @@ _C_ERROR    = "\033[91m"   # bright red    — errors
 _C_CALLBACK = "\033[90m"   # dark gray     — loop control signals
 _RESET      = "\033[0m"
 
+# TUI callback hook — registered by dashboard.py on startup.
+# Signature: (prefix: str, message: str, content_type: str, agent_name: str) -> None
+# When None (default), stream_terminal_update falls through to print() as normal.
+_tui_callback = None
+
 
 def _tool_print(label: str, message: str) -> None:
-    print(f"{_C_TOOL}  ▸ [{label}] {message}{_RESET}", flush=True)
+    if _tui_callback is not None:
+        _tui_callback(f"  ▸ [{label}]", message, "step", "TOOL")
+    else:
+        print(f"{_C_TOOL}  ▸ [{label}] {message}{_RESET}", flush=True)
 
 def _warn_print(label: str, message: str) -> None:
-    print(f"{_C_WARN}  ⚠ [{label}] {message}{_RESET}", flush=True)
+    if _tui_callback is not None:
+        _tui_callback(f"  ⚠ [{label}]", message, "warning", "TOOL")
+    else:
+        print(f"{_C_WARN}  ⚠ [{label}] {message}{_RESET}", flush=True)
 
 def _error_print(label: str, message: str) -> None:
-    print(f"{_C_ERROR}  ✗ [{label}] {message}{_RESET}", file=sys.stderr, flush=True)
+    if _tui_callback is not None:
+        _tui_callback(f"  ✗ [{label}]", message, "error", "TOOL")
+    else:
+        print(f"{_C_ERROR}  ✗ [{label}] {message}{_RESET}", file=sys.stderr, flush=True)
 
 def _callback_print(agent_id: str, message: str) -> None:
     """Colorized status line for LoopAgent before_agent_callback."""
-    print(f"{_C_CALLBACK}  ↩ [loop:{agent_id}] {message}{_RESET}", flush=True)
+    if _tui_callback is not None:
+        _tui_callback(f"  ↩ [loop:{agent_id}]", message, "info", agent_id)
+    else:
+        print(f"{_C_CALLBACK}  ↩ [loop:{agent_id}] {message}{_RESET}", flush=True)
 
 
 def stream_terminal_update(
@@ -90,7 +107,10 @@ def stream_terminal_update(
         prefix = f"[{name_upper}:{key.upper()}]"
     rendered = f"{color}{prefix} {message}{reset}"
 
-    print(rendered, flush=True)
+    if _tui_callback is not None:
+        _tui_callback(prefix, message, content_type, agent_name)
+    else:
+        print(rendered, flush=True)
 
     return f"{prefix} {message}"
 
