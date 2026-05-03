@@ -141,14 +141,19 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
             f"Use the `get_latest_planner_manifest` tool to locate the current manifest if needed.\n\n"
             + validator_prompt
         ),
-        tools=[save_markdown_file, save_json_file, get_latest_planner_manifest, read_researcher_output, exit_loop, stream_terminal_update],
+        tools=[save_markdown_file,
+               save_json_file,
+               get_latest_planner_manifest,
+               read_researcher_output,
+               exit_loop,
+               stream_terminal_update],
         include_contents="none",
     )
 
     pair = LoopAgent(
         name=f"RESEARCH_AND_VALIDATE_{i}",
         sub_agents=[researcher, validator],
-        max_iterations=5,
+        max_iterations=2,
         before_agent_callback=_make_loop_callback(researcher_id, i),
     )
     sub_agents.append(pair)

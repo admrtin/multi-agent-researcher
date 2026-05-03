@@ -538,10 +538,40 @@ class UploadPdfFileTool(BaseTool):
         path = Path(filename)
 
         if not path.exists():
+            _error_print("upload_pdf_file", f"File not found: {filename}")
             return {"status": "error", "message": "File not found"}
 
-        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+        cache_file = path.parent / "file_cache.json"
+        cache_data = {}
+
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r") as f:
+                    cache_data = json.load(f)
+            except json.JSONDecodeError:
+                pass 
+
+        if path.name in cache_data:
+            _tool_print("upload_pdf_file", f"⚡ Cache hit! Reusing URI for {path.name}")
+            return {
+                "status": "success",
+                "filename": filename,
+                "file_uri": cache_data[path.name],
+                "mime_type": "application/pdf"
+            }
+
+        _tool_print("upload_pdf_file", f"☁️ Uploading {path.name} to Gemini...")
+        
+        client = genai.Client(
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            vertexai=False 
+        )
         uploaded = client.files.upload(file=path)
+
+        cache_data[path.name] = uploaded.uri
+
+        with open(cache_file, "w") as f:
+            json.dump(cache_data, f, indent=4)
 
         return {
             "status": "success",
