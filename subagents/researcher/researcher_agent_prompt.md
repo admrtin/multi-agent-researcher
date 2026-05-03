@@ -32,13 +32,13 @@ Follow these steps exactly, in order:
    Derive the local PDF path from your paper's `pdf_link`:
    - Take the last segment of the URL. For example, use `2301.12345v1` from `http://arxiv.org/pdf/2301.12345v1`.
    - The file is at `<run_folder>/papers/<that_segment>.pdf`.
-6. Call `load_pdf_file` with that path. This will attach the full PDF content to your next request so you can read the entire paper.
+6. Call upload_pdf_file with that path. This uploads the PDF to Gemini Files API and returns a reusable file reference. Use the uploaded file reference when analyzing the paper.
 
 ### Step 3 — Write the summary
 
 7. Check if `<run_folder>/researchers/<YOUR_ID>/validator/validation_summary.md` exists by calling `read_researcher_output`.
    - If it exists and contains `"Validation failed"`, also read `validation_criteria.json` to understand what needs to be fixed. Incorporate the validator's feedback into your revised summary.
-8. Using the **full PDF content** now available to you, not just the abstract, compose a thorough markdown summary following the format below.
+8. Using the uploaded PDF file reference, analyze the paper thoroughly. Focus on: methodology, experiments, results, limitations, and contributions.
    - **CRITICAL: DO NOT** output the summary text to the chat.
    - Base your analysis on the actual paper content: methodology details, experimental results, specific findings, and concrete contributions.
 9. You **MUST** call `save_markdown_file` to save the summary to `<run_folder>/researchers/<YOUR_ID>/summary.md`.

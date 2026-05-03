@@ -15,7 +15,7 @@ from tools.agent_tools import (
     save_markdown_file,
     save_json_file,
     load_json_file,
-    load_pdf_file,
+    upload_pdf_file,
     gemini_models,
     get_latest_planner_manifest,
     read_researcher_output,
@@ -121,13 +121,14 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
             + prompt
         ),
         tools=[
-            load_pdf_file,
+            upload_pdf_file,
             save_markdown_file,
             load_json_file,
             get_latest_planner_manifest,
             read_researcher_output,
             stream_terminal_update,
         ],
+        include_contents="none",
     )
 
     validator_id = f"validator_{i}"
