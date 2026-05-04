@@ -9,6 +9,7 @@ from google.adk.agents import Agent
 
 from subagents.planner.agent import planner_agent
 from tools.agent_tools import gemini_models, load_json_file, get_latest_planner_manifest, get_latest_run_dir, stream_terminal_update
+from tools.stats_collector import make_token_callback
 
 prompt = Path("root_agent_prompt.md").read_text()
 agent_name = "ROOT"
@@ -26,6 +27,7 @@ root_agent = Agent(
     sub_agents=[
         planner_agent,
     ],
+    after_model_callback=make_token_callback("ROOT"),
 )
 
 # Immediate greeting for CLI users.

@@ -11,6 +11,7 @@ from google.genai import types
 from dotenv import load_dotenv
 
 from subagents.validator.agent import prompt as validator_prompt
+from tools.stats_collector import make_token_callback
 from tools.agent_tools import (
     save_markdown_file,
     save_json_file,
@@ -129,6 +130,7 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
             stream_terminal_update,
         ],
         include_contents="none",
+        after_model_callback=make_token_callback("RESEARCHER"),
     )
 
     validator_id = f"validator_{i}"
@@ -148,6 +150,7 @@ for i in range(1, MAX_RESEARCHER_POOL + 1):
                exit_loop,
                stream_terminal_update],
         include_contents="none",
+        after_model_callback=make_token_callback("VALIDATOR"),
     )
 
     pair = LoopAgent(

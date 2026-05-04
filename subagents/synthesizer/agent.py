@@ -9,6 +9,7 @@ from tools.agent_tools import (
     gemini_models,
     stream_terminal_update,
 )
+from tools.stats_collector import make_token_callback, pipeline_end_callback
 
 prompt = Path("./subagents/synthesizer/synthesizer_agent_prompt.md").read_text()
 agent_name = "SYNTHESIZER"
@@ -26,4 +27,6 @@ synthesizer_agent = Agent(
         stream_terminal_update,
     ],
     include_contents="none",
+    after_model_callback=make_token_callback("SYNTHESIZER"),
+    after_agent_callback=pipeline_end_callback,
 )

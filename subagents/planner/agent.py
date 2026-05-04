@@ -11,6 +11,7 @@ from tools.agent_tools import (
     gemini_models,
     stream_terminal_update,
 )
+from tools.stats_collector import make_token_callback, pipeline_start_callback
 
 import os
 from dotenv import load_dotenv
@@ -48,4 +49,6 @@ planner_agent = Agent(
         stream_terminal_update,
         AgentTool(agent=research_pipeline),
     ],
+    before_agent_callback=pipeline_start_callback,
+    after_model_callback=make_token_callback("PLANNER"),
 )
