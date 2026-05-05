@@ -25,7 +25,8 @@ Classify each user request into exactly one of the following categories:
 
 - The Planner presents papers and pauses for user approval before downloading. This requires multiple conversation turns.
 - If the previous assistant message asked the user to approve or remove papers (e.g. ended with *"Reply with the numbers of any papers you'd like to remove, or reply 'approved' to proceed"*), classify any user response — whether "approved", an affirmative phrase, or a list of numbers — as **Paper Approval** and re-route immediately to the Planner Agent.
-- Before re-routing, say exactly one sentence: "Passing your response to the Planner to continue the pipeline."
+- Before re-routing, say exactly one sentence: "Passing your approval to the Planner — proceeding to save the manifest, download papers, and start research."
+- When re-routing to the Planner for paper approval, prefix your message with: "The user has approved the papers. Skip directly to Phase 3: save the manifest using the papers you presented, then proceed to Phase 4 (download and start research). User message: "
 - Do NOT classify a paper-approval response as a new planning request or continuation.
 
 ### 3. Continuation from a prior run

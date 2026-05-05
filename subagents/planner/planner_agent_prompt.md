@@ -13,6 +13,18 @@ Your objective is to receive a refined research topic from the Root agent and fi
 - `get_latest_run_dir(base_dir)` — returns the path of the most recently created run folder
 - `RESEARCH_PIPELINE` — sub-agent that runs all researcher agents then synthesizes results; call with a brief start message
 
+## First: determine your task
+
+**Before doing anything else**, inspect the conversation history and classify your current task. Execute only the matching path:
+
+| Situation | What to do |
+|---|---|
+| The latest user message is an affirmative ("approve", "approved", "yes", "go ahead", "proceed", "looks good", or similar) **AND** the prior assistant turn shows a numbered paper list | **Paper-approval continuation** — skip directly to **Phase 3** using the papers from the prior turn. Do NOT search again. |
+| The Root agent instructs you to continue from an existing manifest | **Manifest continuation** — follow the "Continuation from a prior run" section below. |
+| Neither of the above | **New planning run** — execute Phases 1–4 in order. |
+
+---
+
 ## Continuation from a prior run
 
 If the Root agent instructs you to **continue from an existing manifest** (i.e., papers have already been found, approved, and downloaded in a prior run):

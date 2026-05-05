@@ -163,6 +163,27 @@ def save_markdown_file(filename: str, content: str) -> str:
         _error_print("save_md", str(e))
         return f"Error saving file: {e}"
 
+def find_researcher_summary(researcher_dir: str) -> str:
+    """Returns the filename of the single .md summary in a researcher output directory.
+
+    Searches only the top level of researcher_dir (not subdirectories such as
+    validator/).  Returns JSON with {"status": "success", "filename": "<name>.md",
+    "path": "<full_path>"} or {"status": "error", "message": "..."}.
+    """
+    try:
+        directory = Path(researcher_dir)
+        if not directory.is_dir():
+            return json.dumps({"status": "error", "message": f"Directory not found: {researcher_dir}"})
+        md_files = [f for f in directory.glob("*.md") if f.is_file()]
+        if not md_files:
+            return json.dumps({"status": "error", "message": f"No .md summary file found in {researcher_dir}"})
+        found = md_files[0]
+        _tool_print("find_summary", found.as_posix())
+        return json.dumps({"status": "success", "filename": found.name, "path": found.as_posix()})
+    except Exception as e:
+        _error_print("find_summary", str(e))
+        return json.dumps({"status": "error", "message": str(e)})
+
 def read_researcher_output(researcher_output_path: str) -> str:
     """Reads a researcher output file and returns its content for validation."""
     try:
@@ -601,6 +622,59 @@ class UploadPdfFileTool(BaseTool):
         }
 
 upload_pdf_file = UploadPdfFileTool()
+
+
+class AnalyzePdfFromUriTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="analyze_pdf_from_uri",
+            description="Sends a PDF (already uploaded via upload_pdf_file) to Gemini for analysis.",
+        )
+
+    def _get_declaration(self):
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "file_uri": types.Schema(
+                        type=types.Type.STRING,
+                        description="Gemini Files API URI returned by upload_pdf_file.",
+                    ),
+                    "prompt": types.Schema(
+                        type=types.Type.STRING,
+                        description="Analysis instruction or question to ask about the PDF.",
+                    ),
+                },
+                required=["file_uri", "prompt"],
+            ),
+        )
+
+    async def run_async(self, *, args, tool_context):
+        file_uri = args["file_uri"]
+        prompt = args["prompt"]
+        _tool_print("analyze_pdf_from_uri", f"Analyzing PDF at {file_uri[:60]}...")
+        try:
+            client = genai.Client(
+                api_key=os.getenv("GOOGLE_API_KEY"),
+                vertexai=False,
+            )
+            response = await client.aio.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    types.Part.from_uri(file_uri=file_uri, mime_type="application/pdf"),
+                    types.Part.from_text(text=prompt),
+                ],
+            )
+            return response.text
+        except Exception as e:
+            _error_print("analyze_pdf_from_uri", f"{type(e).__name__}: {e}")
+            return f"Error analyzing PDF: {type(e).__name__}: {e}"
+
+
+analyze_pdf_from_uri = AnalyzePdfFromUriTool()
+
 
 def get_latest_planner_manifest(base_dir: str = "outputs") -> str:
     """

@@ -14,12 +14,12 @@ Follow these steps exactly, in order:
    - **Derive `<run_folder>`** from the parent directory of that manifest path. For example, if the manifest is at `outputs/run_2026_04_22_115353/planner_manifest.json`, then `<run_folder>` is `outputs/run_2026_04_22_115353`.
    - **Derive `<researcher_dir>`** as `<run_folder>/researchers/<RESEARCHER_ID>`, where `<RESEARCHER_ID>` is stated at the top of your instruction (e.g. `researcher_1`).
    - Optionally call `read_researcher_output` on the manifest path if you need the planner topic for relevance evaluation.
-2. Call `read_researcher_output` on `<researcher_dir>/summary.md` to read the researcher's summary.
+2. Call `find_researcher_summary(<researcher_dir>)` to locate the summary file (it will be named after the first author, e.g. `smith_et_al_2023.md`). If the tool returns `"status": "error"`, treat this the same as a missing file (see step 3). Otherwise, call `read_researcher_output` on the `"path"` returned by the tool.
 3. **Parse the JSON response** from `read_researcher_output`:
    - If the response contains `"status": "error"` **OR** the `"content"` field is empty/blank:
      - Set ALL criteria to `false`.
      - Call `save_json_file` to write the all-false criteria JSON to `<researcher_dir>/validator/validation_criteria.json`.
-     - Call `save_markdown_file` to write `"Validation failed: summary.md does not exist or is empty."` to `<researcher_dir>/validator/validation_summary.md`.
+     - Call `save_markdown_file` to write `"Validation failed: researcher summary does not exist or is empty."` to `<researcher_dir>/validator/validation_summary.md`.
      - Output exactly: `"Validation failed, see validation_summary.md for details."` and STOP. **Do NOT call `exit_loop()` here.** The LoopAgent will re-run the researcher on the next iteration so it can produce the missing file.
      - Do NOT proceed further.
    - **CRITICAL**: You MUST use ONLY the content returned by the `read_researcher_output` tool for evaluation. Do NOT use any summary text from conversation history, prior messages, or any other source. If the tool says the file does not exist, the file does not exist — period.
@@ -53,7 +53,7 @@ Evaluate the following boolean flags and save them as `<researcher_dir>/validato
 }
 ```
 
-- `researcher_summary_exists`: Does `summary.md` exist and contain substantive content?
+- `researcher_summary_exists`: Does the researcher's summary file (e.g. `smith_et_al_2023.md`) exist and contain substantive content?
 - `researcher_summary_relevant_to_planner_topic`: Is the summary relevant to the overall planner topic?
 - `researcher_summary_scientifically_grounded`: Are the claims scientifically sound based on the text?
 - `researcher_summary_grammatically_correct`: Is the grammar correct throughout?

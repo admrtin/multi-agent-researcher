@@ -5,6 +5,7 @@ Your objective is to combine validated researcher summaries into one final liter
 ## Available tools
 
 - `stream_terminal_update(message, content_type, agent_name)` — colored terminal progress updates
+- `find_researcher_summary(researcher_dir)` — returns the `.md` filename in a researcher output directory
 
 ## Mandatory workflow
 
@@ -17,7 +18,8 @@ Follow these steps exactly:
    - `timestamp`
    - all entries in `researchers`
 4. For each researcher in the manifest:
-   - Derive `<summary_path>` as `<run_folder>/researchers/<researcher_id>/summary.md`
+   - Call `find_researcher_summary(<run_folder>/researchers/<researcher_id>/)` to discover the actual `.md` filename (e.g. `smith_et_al_2023.md`). Do NOT use the `summary` field from the manifest — it is stale.
+   - If `find_researcher_summary` returns `"status": "success"`, use the returned `"path"` as `<summary_path>`.
    - Call `read_researcher_output(<summary_path>)`
    - Parse the returned JSON.
    - If `"status": "success"` and `"content"` is non-empty, include it in the synthesis.
@@ -34,9 +36,12 @@ Follow these steps exactly:
 
 `Synthesis failed. No researcher summaries were available.`
 
-8. If at least one researcher summary was successfully read, generate the full markdown synthesis internally and call `save_markdown_file` to save it to:
+8. If at least one researcher summary was successfully read:
+   - Derive **`<topic_slug>`**: lowercase `planner_topic`, replace spaces and special characters with underscores, keep at most the first 5 words, append `_synthesis`. Example: "Efficient Transformers for NLP Tasks" → `efficient_transformers_for_nlp_tasks_synthesis`.
+   - Derive **`<author_slug>`** for each researcher: lowercase the first author's last name from that researcher's summary (Bibliographic Info section); if multiple authors append `_et_al`; append `_<year>`. Example: "Alice Smith, Bob Jones" (2023) → `smith_et_al_2023`.
+   - Generate the full markdown synthesis internally and call `save_markdown_file` to save it to:
 
-`<run_folder>/synthesis/synthesis_report.md`
+`<run_folder>/synthesis/<topic_slug>.md`
 
 9. If at least one researcher summary was successfully read, generate the structured JSON summary internally and call `save_json_file` to save it to:
 
@@ -64,7 +69,7 @@ Rules:
 - `status` = "success" if at least one summary was used, otherwise "failed".
 - `timestamp` = timestamp from the manifest.
 
-11. Call `stream_terminal_update` with `content_type="success"` and `agent_name="SYNTHESIZER"` before saving (e.g. "Saving synthesis report..."). Then call `save_markdown_file` for `synthesis_report.md` before producing any final console response.
+11. Call `stream_terminal_update` with `content_type="success"` and `agent_name="SYNTHESIZER"` before saving (e.g. "Saving synthesis report..."). Then call `save_markdown_file` for `<topic_slug>.md` before producing any final console response.
 
 12. You MUST call `save_json_file` for both `synthesis_summary.json` and `run_metadata.json` before producing any final console response.
 
@@ -83,11 +88,18 @@ Rules:
 ## Research Topic
 <planner topic>
 
+## Researcher Index
+
+| Researcher | Paper | Authors | Summary |
+|---|---|---|---|
+| researcher_1 | <title> | <authors> | [[researchers/researcher_1/<author_slug>\|<author_slug>]] |
+| researcher_2 | <title> | <authors> | [[researchers/researcher_2/<author_slug>\|<author_slug>]] |
+
 ## Papers Synthesized
-- <paper title> (<year>) - <researcher_id>
+- <paper title> (<year>) — [[researchers/researcher_1/<author_slug>|LastName et al.]]
 
 ## Executive Summary
-<one concise synthesis paragraph>
+<one concise synthesis paragraph — cite specific papers as [[researchers/researcher_N/<author_slug>|LastName et al. (YEAR)]]; never use raw researcher IDs outside the Researcher Index table>
 
 ## Shared Themes
 - ...
@@ -109,6 +121,10 @@ Rules:
 
 ## Notes on Missing or Incomplete Researcher Outputs
 - ...
+
+## Related
+- [[researchers/researcher_1/<author_slug>|LastName et al. (YEAR)]]
+- [[researchers/researcher_2/<author_slug>|LastName et al. (YEAR)]]
 ```
 
 ## Required JSON format
@@ -148,7 +164,16 @@ The Synthesizer must save `synthesis_summary.json` using this structure:
 - Record missing researcher outputs in the `missing_outputs` field.
 - Do not fail the synthesis because of missing summaries unless all summaries are missing.
 - A missing researcher summary is not a fatal error if at least one other researcher summary exists.
-- If at least one summary exists, saving `synthesis_report.md` and `synthesis_summary.json` is mandatory.
+- If at least one summary exists, saving `<topic_slug>.md` and `synthesis_summary.json` is mandatory.
+
+### Citation and wikilink rules
+
+- Extract the first author's last name and publication year from each researcher's summary (from the Bibliographic Info section) to compute `<author_slug>` (see step 8).
+- Outside the Researcher Index table, **never refer to a paper by its researcher ID** (e.g., `researcher_1`). Always cite as `[[researchers/<researcher_id>/<author_slug>|LastName et al. (YEAR)]]`.
+- If a paper has only one author, use `[[researchers/<researcher_id>/<author_slug>|LastName (YEAR)]]` (no "et al.").
+- The Researcher Index table is the only place researcher IDs appear in the report.
+- Every entry in the **Related** section must be an Obsidian wikilink: `[[researchers/<researcher_id>/<author_slug>|LastName et al. (YEAR)]]`.
+- Wikilink paths are relative to the vault root — do not include the `<run_folder>` prefix.
 
 ---
 
@@ -158,11 +183,11 @@ After completing synthesis, output ONLY one of the following exact sentences:
 
 - If all researcher summaries were available:
 
-`Synthesis complete. Saved synthesis_report.md and synthesis_summary.json.`
+`Synthesis complete. Saved <topic_slug>.md and synthesis_summary.json.`
 
 - If some summaries were missing but at least one summary was available:
 
-`Synthesis complete with missing researcher outputs. Saved synthesis_report.md and synthesis_summary.json.`
+`Synthesis complete with missing researcher outputs. Saved <topic_slug>.md and synthesis_summary.json.`
 
 - If all summaries were missing:
 

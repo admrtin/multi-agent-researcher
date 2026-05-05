@@ -41,8 +41,11 @@ Follow these steps exactly, in order:
 8. Using the uploaded PDF file reference, analyze the paper thoroughly. Focus on: methodology, experiments, results, limitations, and contributions.
    - **CRITICAL: DO NOT** output the summary text to the chat.
    - Base your analysis on the actual paper content: methodology details, experimental results, specific findings, and concrete contributions.
-9. You **MUST** call `save_markdown_file` to save the summary to `<run_folder>/researchers/<YOUR_ID>/summary.md`.
-10. Output exactly: `"I have successfully saved summary.md for <YOUR_ID> in <run_folder>/researchers/<YOUR_ID>/."` and STOP.
+9. Derive two slugs from the manifest before saving:
+   - **`<author_slug>`**: lowercase the first author's last name; if there are multiple authors append `_et_al`; append `_<year>`. Replace any spaces or hyphens with underscores. Example: "Alice Smith, Bob Jones" (2023) → `smith_et_al_2023`.
+   - **`<topic_slug>`**: take the `planner_topic` string, lowercase it, replace spaces and special characters with underscores, keep at most the first 5 words, and append `_synthesis`. Example: "Efficient Transformers for NLP Tasks" → `efficient_transformers_for_nlp_tasks_synthesis`.
+10. You **MUST** call `save_markdown_file` to save the summary to `<run_folder>/researchers/<YOUR_ID>/<author_slug>.md`.
+11. Output exactly: `"I have successfully saved <author_slug>.md for <YOUR_ID> in <run_folder>/researchers/<YOUR_ID>/."` and STOP.
 
 ## Required markdown format
 
@@ -78,10 +81,13 @@ Follow these steps exactly, in order:
 
 ## Relevance to Overall Topic
 <why this matters in the context of the planner topic>
+
+## Related
+- [[<topic_slug>]]
 ```
 
 ## Output rules
 
 Write all content to disk using tools. Console output MUST be EXACTLY:
 
-"I have successfully saved summary.md for <YOUR_ID> in <run_folder>/researchers/<YOUR_ID>/."
+"I have successfully saved <author_slug>.md for <YOUR_ID> in <run_folder>/researchers/<YOUR_ID>/."
